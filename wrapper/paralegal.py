@@ -230,6 +230,8 @@ EXCEPTION_DENIED = re.compile(r"\b(?:without (?:any )?exceptions?|no exceptions?
                               r"under (?:any|all) circumstances|regardless of|unconditional(?:ly)?|absolute(?:ly)?|"
                               r"at all times|always|in every instance)\b")
 UNIVERSAL = re.compile(r"\b(?:all|every|any|anyone|everyone|everything)\b")
+REQUIREMENT = re.compile(r"\b(?:must|requir\w*|has to|have to|needs? to)\b")
+CONDITION_WAIVED = re.compile(r"\b(?:regardless of|irrespective of|no matter|without regard to|whether or not)\b")
 HOLDING_VERB = re.compile(r"\b(?:held|holds|ruled|rules|establish(?:ed|es)|stands for|concluded|decided) (?:that\b)?", re.I)
 
 
@@ -409,6 +411,12 @@ def holding_issues(statement, entry, index, by_case, cited_nearby=()):
             elif UNIVERSAL.search(s_low) and shared:
                 found.append((HOLD, "the memo states the rule without the limit in the trusted holding "
                                     f"(\"{LIMITERS.search(h_low).group()} ...\")"))
+    # 3b. A required element dropped: the trusted holding says "must ..." and the memo applies the rule "regardless of" it.
+    elif REQUIREMENT.search(h_low) and not REQUIREMENT.search(s_low) and not LIMITERS.search(s_low) and shared:
+        waived = CONDITION_WAIVED.search(s_low)
+        if waived:
+            found.append((BLOCK, f"the memo says \"{waived.group()}\", but the trusted holding imposes a requirement "
+                                 f"(\"{REQUIREMENT.search(h_low).group()} ...\")"))
 
     # 4. Negation or an opposite word on the same proposition.
     known = content_stems(statement) | content_stems(holding)
