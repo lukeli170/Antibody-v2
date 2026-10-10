@@ -1,212 +1,466 @@
 <!doctype html>
 <!--
-  Paralegal persona page: "Submit memo to partner" gate.
-  The page never decides. Every decision, reason, evidence line and the action flag come from POST /decide.
-  Reviews go to POST /review, which only logs. Offline: no external scripts, fonts, or requests.
+  Approval Gate: paralegal memo page. "Prepare memo -> verify cited authorities -> forward to supervising partner."
+  The page never decides. Every decision, reason, finding and the action flag come from POST /decide.
+  Reviews go to POST /review, which only logs. History comes from GET /api/audit.
+  Offline: no external scripts, fonts or requests. All backend text is inserted with textContent, never as HTML.
 -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Paralegal memo check</title>
+<title>Approval Gate</title>
 <style>
   :root {
-    --bg: #f6f5f1; --panel: #ffffff; --ink: #1d1f23; --muted: #5d6470; --line: #d9d6cc;
-    --ok: #17663a; --ok-bg: #e3f3e8; --hold: #8a5a00; --hold-bg: #fff2d1; --bad: #a21d1d; --bad-bg: #fbe2e0;
-    --info: #1f4e8c; --info-bg: #e2ecf9; --neutral-bg: #eceae4; --accent: #23395d;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #15171b; --panel: #1e2126; --ink: #e9e7e1; --muted: #a2a8b3; --line: #353a42;
-      --ok: #7ad69c; --ok-bg: #173323; --hold: #f2c46b; --hold-bg: #3a2e12; --bad: #ff9a92; --bad-bg: #3d1a1a;
-      --info: #9cc1f5; --info-bg: #1a2a40; --neutral-bg: #2a2d33; --accent: #9cb4dc;
-    }
+    color-scheme: light;
+    --void: #f4f4f2; --paper: #ffffff; --ink: #1b1c1f; --ink2: #4d5058; --ink3: #8b8e95; --line: rgba(20,22,28,.09); --line2: rgba(20,22,28,.16);
+    --ok: #18864b; --ok-soft: #e6f5ec; --hold: #b7780a; --hold-soft: #fdf3dd; --bad: #cc2f25; --bad-soft: #fde8e6; --gray: #6b6f77; --gray-soft: #eeeeec;
+    --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
+    --serif: "New York", "Iowan Old Style", "Charter", Georgia, "Times New Roman", serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --shadow: 0 1px 0 rgba(255,255,255,.9) inset, 0 24px 48px -24px rgba(20,24,40,.22), 0 8px 18px -10px rgba(20,24,40,.10);
+    --ease: cubic-bezier(.2,.8,.2,1);
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  header { background: var(--accent); color: #fff; padding: 14px 20px; }
-  @media (prefers-color-scheme: dark) { header { color: #111; } }
-  header h1 { margin: 0; font-size: 20px; }
-  header p { margin: 2px 0 0; font-size: 13px; opacity: .9; }
-  main { max-width: 1280px; margin: 0 auto; padding: 16px; }
-  .grid2 { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 16px; align-items: start; }
-  @media (max-width: 900px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
-  section.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
-  h2 { font-size: 16px; margin: 0 0 10px; }
-  h3 { font-size: 14px; margin: 14px 0 6px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
-  label { font-weight: 600; display: block; margin: 8px 0 4px; }
-  textarea, input[type=text] { width: 100%; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
-  textarea#memo { min-height: 200px; font-family: Georgia, "Times New Roman", serif; font-size: 15px; }
-  textarea#context { min-height: 54px; font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
-  .counter { font-size: 12px; color: var(--muted); text-align: right; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body { margin: 0; color: var(--ink); background: var(--void); font: 15px/1.55 var(--sans); -webkit-font-smoothing: antialiased; min-height: 100vh; overflow-x: hidden; }
+  button, input, textarea { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid #3d6bd8; outline-offset: 2px; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  code { font: 12.5px var(--mono); }
+  [hidden] { display: none !important; }
+
+  /* ---------- the white void ---------- */
+  .void { position: fixed; inset: 0; z-index: -1; pointer-events: none; background: radial-gradient(120% 80% at 50% 18%, #ffffff 0%, #f6f6f4 48%, #ebebe7 100%); overflow: hidden; }
+  .void .floor { position: absolute; left: -50%; right: -50%; bottom: -8%; height: 58%; transform: perspective(800px) rotateX(72deg); transform-origin: bottom center;
+    background-image: linear-gradient(rgba(20,22,28,.07) 1px, transparent 1px), linear-gradient(90deg, rgba(20,22,28,.07) 1px, transparent 1px); background-size: 72px 72px;
+    -webkit-mask-image: linear-gradient(to top, rgba(0,0,0,.8), transparent 70%); mask-image: linear-gradient(to top, rgba(0,0,0,.8), transparent 70%); }
+
+  /* ---------- header ---------- */
+  header.top { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 16px; padding: 18px 28px 0; }
+  .mini { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .mini .lbl { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink3); line-height: 1.3; }
+  .mini .lbl b { display: block; color: var(--ink); font-weight: 600; letter-spacing: .04em; }
+  .brand { text-align: center; }
+  .wordmark { font-weight: 650; letter-spacing: .42em; font-size: 15px; padding-left: .42em; }
+  .tagline { color: var(--ink3); font-size: 13px; margin-top: 2px; }
+  nav.links { display: flex; gap: 6px; justify-content: flex-end; align-items: center; flex-wrap: wrap; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 5px 10px; border-radius: 999px; background: rgba(255,255,255,.7); border: 1px solid var(--line); white-space: nowrap; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ink3); flex: none; }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 0 3px rgba(24,134,75,.15); } .dot.bad { background: var(--bad); box-shadow: 0 0 0 3px rgba(204,47,37,.15); }
+  .navbtn { border: 1px solid var(--line); background: rgba(255,255,255,.7); border-radius: 999px; padding: 6px 12px; font-size: 13px; font-weight: 600; cursor: pointer; transition: transform .2s var(--ease), box-shadow .2s; }
+  .navbtn:hover { transform: translateY(-1px); box-shadow: 0 6px 14px -8px rgba(0,0,0,.25); }
+  @media (max-width: 760px) { header.top { grid-template-columns: 1fr; text-align: center; } .mini, nav.links { justify-content: center; } }
+
+  main { max-width: 1180px; margin: 0 auto; padding: 0 20px 80px; }
+  #global-banners { max-width: 760px; margin: 12px auto 0; }
+
+  /* ---------- workflow indicator ---------- */
+  .flow { display: flex; justify-content: center; align-items: center; gap: 10px; margin: 22px 0 18px; font-size: 12.5px; color: var(--ink3); flex-wrap: wrap; }
+  .flow .st { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px; border-radius: 999px; transition: all .3s; }
+  .flow .st i { font-style: normal; width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; border: 1px solid var(--line2); font-size: 10px; font-weight: 700; }
+  .flow .st.on { color: var(--ink); background: rgba(255,255,255,.8); box-shadow: 0 4px 12px -6px rgba(0,0,0,.2); }
+  .flow .st.on i { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .flow .sep { width: 28px; height: 1px; background: var(--line2); }
+
+  /* ---------- chamber ---------- */
+  .stage { position: relative; perspective: 1400px; scroll-margin-top: 8px; }
+  .depth { transition: transform .7s var(--ease); transform-style: preserve-3d; max-width: 780px; margin: 0 auto; position: relative; }
+  .stage.inspecting .depth { transform: translateZ(-70px) rotateX(3deg); }
+  .chamber { --mx: 50%; --my: 30%; --sx: 0; --sy: 0; position: relative; border-radius: 26px; padding: 16px; background: linear-gradient(180deg, rgba(255,255,255,.96), rgba(250,250,248,.92));
+    border: 1px solid rgba(255,255,255,.95); outline: 1px solid var(--line); will-change: transform;
+    box-shadow: 0 1px 0 #fff inset, calc(var(--sx) * 1px) calc(34px + var(--sy) * 1px) 70px -28px rgba(20,24,40,.28), calc(var(--sx) * .4px) calc(10px + var(--sy) * .4px) 22px -12px rgba(20,24,40,.12); }
+  .chamber .glare { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: radial-gradient(520px circle at var(--mx) var(--my), rgba(255,255,255,.9), transparent 45%); mix-blend-mode: screen; }
+  .chamber .rim { position: absolute; inset: -1px; border-radius: inherit; pointer-events: none; padding: 1px; background: radial-gradient(380px circle at var(--mx) var(--my), rgba(20,22,28,.28), transparent 60%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
+  .ch-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 2px 6px 12px; position: relative; }
+  .ch-title { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 14px; }
+  .ch-title svg { flex: none; }
+  .ch-title small { display: block; font-weight: 400; color: var(--ink3); font-size: 12px; }
+  #inspector { font-size: 12px; color: var(--ink2); display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+  #inspector .dot { background: var(--ok); }
+  .stage.inspecting #inspector .dot { background: #3d6bd8; animation: blink 1s ease-in-out infinite; }
+  @keyframes blink { 50% { opacity: .25; } }
+  .surface { position: relative; border-radius: 16px; background: #f7f7f5; box-shadow: inset 0 1px 3px rgba(0,0,0,.07), inset 0 0 0 1px rgba(0,0,0,.04); overflow: hidden; }
+  textarea#memo { display: block; width: 100%; min-height: 230px; max-height: 60vh; resize: vertical; border: 0; background: transparent; padding: 22px 24px; font: 17px/1.7 var(--serif); color: var(--ink); outline: none; }
+  textarea#memo::placeholder { color: #a3a5aa; }
+  .surface:focus-within { box-shadow: inset 0 1px 3px rgba(0,0,0,.07), inset 0 0 0 1px rgba(61,107,216,.45); }
+  .scan { position: absolute; left: 0; right: 0; top: 0; height: 2px; pointer-events: none; opacity: 0; background: linear-gradient(90deg, transparent, rgba(61,107,216,.9), transparent); box-shadow: 0 0 24px 6px rgba(61,107,216,.18); }
+  .stage.inspecting .scan { opacity: 1; animation: scan 1.6s cubic-bezier(.45,0,.55,1) infinite; }
+  @keyframes scan { 0% { top: 0; } 100% { top: 100%; } }
+  .ch-foot { display: flex; align-items: center; gap: 8px; padding: 12px 4px 2px; flex-wrap: wrap; position: relative; }
+  .counter { font-size: 12px; color: var(--ink3); margin-right: auto; font-variant-numeric: tabular-nums; }
   .counter.over { color: var(--bad); font-weight: 700; }
-  button { font: inherit; font-weight: 600; border: 1px solid var(--accent); background: var(--accent); color: #fff; padding: 8px 14px; border-radius: 6px; cursor: pointer; }
-  @media (prefers-color-scheme: dark) { button { color: #111; } }
-  button.secondary { background: transparent; color: var(--accent); }
-  button:disabled { opacity: .5; cursor: not-allowed; }
-  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
-  .hint { font-size: 13px; color: var(--muted); }
-  .banner { border-radius: 6px; padding: 10px 12px; margin: 0 0 10px; border-left: 6px solid; font-size: 14px; }
+  .btn { border: 1px solid var(--line2); background: #fff; border-radius: 999px; padding: 9px 16px; font-weight: 600; font-size: 14px; cursor: pointer; transition: transform .2s var(--ease), box-shadow .2s, background .2s; }
+  .btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 8px 16px -10px rgba(0,0,0,.35); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn.primary { background: var(--ink); color: #fff; border-color: var(--ink); padding: 11px 20px; box-shadow: 0 10px 22px -12px rgba(0,0,0,.6); }
+  .btn.primary kbd { font: 11px var(--sans); opacity: .6; margin-left: 8px; }
+  .btn.ghost { background: transparent; border-color: transparent; color: var(--ink2); }
+  .btn.small { padding: 5px 11px; font-size: 12.5px; }
+  .btn.danger { color: var(--bad); border-color: rgba(204,47,37,.35); }
+  .btn.okb { background: var(--ok); color: #fff; border-color: var(--ok); }
+  #ctx-panel { padding: 10px 6px 0; position: relative; }
+  #ctx-panel label { font-size: 12px; font-weight: 600; color: var(--ink2); }
+  textarea#context { width: 100%; min-height: 54px; margin-top: 4px; border: 1px solid var(--line2); border-radius: 10px; padding: 8px 10px; font: 13px var(--mono); background: #fafaf9; }
+  .hint { font-size: 12.5px; color: var(--ink3); }
+  .nodes { position: absolute; inset: -30px; pointer-events: none; }
+  .nodes span { position: absolute; width: 7px; height: 7px; border-radius: 50%; background: #fff; border: 1px solid var(--line2); box-shadow: 0 4px 10px -4px rgba(0,0,0,.3); transition: background .5s, border-color .5s; }
+  .stage.inspecting .nodes span { animation: blink 1.2s ease-in-out infinite; }
+  .stage[data-d=APPROVE] .nodes span { background: var(--ok); border-color: var(--ok); }
+  .stage[data-d=HOLD_FOR_REVIEW] .nodes span { background: var(--hold); border-color: var(--hold); }
+  .stage[data-d=BLOCK] .nodes span { background: var(--bad); border-color: var(--bad); }
+
+  /* citation markers that emerge from the memo */
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 14px auto 0; max-width: 780px; }
+  .chip { font: 12px var(--serif); padding: 4px 10px; border-radius: 999px; background: #fff; border: 1px solid var(--line2); box-shadow: 0 6px 14px -10px rgba(0,0,0,.4); animation: emerge .5s var(--ease) both; }
+  .chip b { font-family: var(--sans); font-size: 10px; letter-spacing: .06em; margin-right: 6px; }
+  @keyframes emerge { from { opacity: 0; transform: translateY(-14px) scale(.9); } }
+
+  /* ---------- demo dock ---------- */
+  .dock { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; margin: 20px auto 0; }
+  .preset { display: flex; align-items: center; gap: 10px; text-align: left; border: 1px solid var(--line); background: rgba(255,255,255,.85); border-radius: 16px; padding: 10px 14px; cursor: pointer; box-shadow: 0 10px 22px -18px rgba(0,0,0,.5); transition: transform .25s var(--ease), box-shadow .25s; min-width: 196px; }
+  .preset:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 16px 26px -16px rgba(0,0,0,.45); }
+  .preset:disabled { opacity: .45; cursor: not-allowed; }
+  .preset .n { font: 600 11px var(--mono); color: var(--ink3); }
+  .preset .t { font-weight: 650; font-size: 13px; letter-spacing: .04em; }
+  .preset .d { font-size: 12px; color: var(--ink3); }
+  .preset .sw { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+
+  /* ---------- result ---------- */
+  #result { margin-top: 34px; scroll-margin-top: 12px; }
+  .banner { border-radius: 14px; padding: 12px 16px; margin: 0 0 12px; border: 1px solid; font-size: 14px; background: #fff; display: flex; gap: 12px; align-items: flex-start; }
   .banner strong { display: block; }
-  .banner.error { background: var(--bad-bg); border-color: var(--bad); }
-  .banner.warn { background: var(--hold-bg); border-color: var(--hold); }
-  .banner.info { background: var(--info-bg); border-color: var(--info); }
-  .empty { color: var(--muted); font-style: italic; }
+  .banner .ic { font-weight: 800; flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; color: #fff; margin-top: 1px; }
+  .banner.error { border-color: rgba(204,47,37,.35); background: var(--bad-soft); } .banner.error .ic { background: var(--bad); }
+  .banner.warn { border-color: rgba(183,120,10,.35); background: var(--hold-soft); } .banner.warn .ic { background: var(--hold); }
+  .banner.info { border-color: var(--line2); background: #fff; } .banner.info .ic { background: var(--gray); }
+  .card { background: rgba(255,255,255,.94); border: 1px solid rgba(255,255,255,.95); outline: 1px solid var(--line); border-radius: 22px; box-shadow: var(--shadow); padding: 20px; }
+  .kicker { font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink3); font-weight: 600; }
+  h2 { font-size: 19px; margin: 2px 0 0; font-weight: 650; letter-spacing: -.01em; }
+  h3 { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink3); margin: 26px 0 10px; font-weight: 600; }
 
-  /* Decision */
-  .decision { display: flex; gap: 14px; align-items: center; border-radius: 8px; padding: 14px; border: 2px solid; }
-  .decision .icon { font-size: 34px; font-weight: 800; width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; border: 3px solid; flex: none; }
-  .decision .label { font-size: 30px; font-weight: 800; letter-spacing: .02em; line-height: 1.1; }
-  .decision .sub { font-size: 13px; color: var(--muted); }
-  .d-APPROVE { background: var(--ok-bg); border-color: var(--ok); color: var(--ok); }
-  .d-HOLD_FOR_REVIEW { background: var(--hold-bg); border-color: var(--hold); color: var(--hold); }
-  .d-BLOCK { background: var(--bad-bg); border-color: var(--bad); color: var(--bad); }
-  .d-NONE { background: var(--neutral-bg); border-color: var(--muted); color: var(--ink); }
-  .action { margin-top: 10px; font-size: 18px; font-weight: 800; padding: 8px 12px; border-radius: 6px; border: 2px dashed; }
-  .action.ran { color: var(--ok); border-color: var(--ok); background: var(--ok-bg); border-style: solid; }
-  .action.not { color: var(--bad); border-color: var(--bad); }
-  .meaning { margin: 8px 0 0; font-size: 14px; }
-  .reason { margin: 10px 0 0; font-size: 15px; }
+  /* verdict hero */
+  .verdict { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 26px; align-items: center; padding: 26px 30px; border-radius: 26px; position: relative; overflow: hidden; }
+  .verdict::before { content: ""; position: absolute; inset: 0; opacity: .8; pointer-events: none; }
+  .verdict.v-APPROVE::before { background: radial-gradient(80% 140% at 0% 50%, var(--ok-soft), transparent 70%); }
+  .verdict.v-HOLD_FOR_REVIEW::before { background: radial-gradient(80% 140% at 0% 50%, var(--hold-soft), transparent 70%); }
+  .verdict.v-BLOCK::before, .verdict.v-NONE::before { background: radial-gradient(80% 140% at 0% 50%, var(--bad-soft), transparent 70%); }
+  .verdict > * { position: relative; }
+  .ring { width: 104px; height: 104px; display: block; }
+  .ring circle.track { stroke: var(--line); }
+  .ring .arc { stroke-dasharray: 289; stroke-dashoffset: 0; stroke-linecap: round; transform: rotate(-90deg); transform-origin: 50% 50%; }
+  .ring .glyph { stroke-dasharray: 80; stroke-dashoffset: 0; stroke-linecap: round; stroke-linejoin: round; }
+  .v-HOLD_FOR_REVIEW .ring .arc { stroke-dashoffset: 52; }
+  .dlabel { font-size: clamp(40px, 6.4vw, 76px); font-weight: 760; letter-spacing: -.035em; line-height: .95; }
+  .v-APPROVE .dlabel { color: var(--ok); } .v-HOLD_FOR_REVIEW .dlabel { color: var(--hold); } .v-BLOCK .dlabel { color: var(--bad); } .v-NONE .dlabel { color: var(--ink); }
+  .route { display: inline-flex; align-items: center; gap: 10px; margin-top: 12px; font-size: clamp(15px, 2vw, 20px); font-weight: 750; letter-spacing: .02em; padding: 8px 16px; border-radius: 12px; border: 2px solid; background: #fff; }
+  .route.sent { color: var(--ok); border-color: var(--ok); }
+  .route.not { color: var(--bad); border-color: var(--bad); }
+  .route.wait { color: var(--hold); border-color: var(--hold); border-style: dashed; }
+  .route.unk { color: var(--gray); border-color: var(--gray); border-style: dashed; }
+  .vsum { margin-top: 12px; font-size: 15px; color: var(--ink2); max-width: 62ch; }
+  .vmeta { margin-top: 6px; font-size: 12px; color: var(--ink3); }
+  @media (max-width: 860px) { .verdict { grid-template-columns: 1fr; text-align: center; justify-items: center; } }
 
-  /* Ezio vs our check */
-  .versus { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; border: 2px solid var(--line); border-radius: 8px; padding: 10px; }
-  .versus.disagree { border-color: var(--bad); border-style: dashed; background: var(--bad-bg); }
-  .versus .col { background: var(--panel); border-radius: 6px; padding: 10px; border: 1px solid var(--line); }
-  .versus .col .big { font-size: 20px; font-weight: 800; }
-  .versus .verdict-line { grid-column: 1 / -1; font-weight: 700; }
-  @media (max-width: 560px) { .versus { grid-template-columns: 1fr; } }
+  /* conflict strip */
+  .conflict { margin: 16px 0 0; text-align: center; padding: 18px; border-radius: 18px; border: 1px solid; }
+  .conflict.red { border-color: rgba(204,47,37,.35); background: linear-gradient(180deg, #fff, var(--bad-soft)); }
+  .conflict.amber { border-color: rgba(183,120,10,.35); background: linear-gradient(180deg, #fff, var(--hold-soft)); }
+  .conflict .big { font-weight: 780; letter-spacing: .08em; font-size: clamp(16px, 2.4vw, 24px); }
+  .conflict.red .big { color: var(--bad); } .conflict.amber .big { color: var(--hold); }
+  .conflict .sub { color: var(--ink2); font-size: 14px; margin-top: 4px; }
+  .conflict .moral { font-family: var(--serif); font-style: italic; margin-top: 8px; color: var(--ink); font-size: 15px; }
 
-  /* Signals */
-  .signals { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
-  .sig { border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
-  .sig .k { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-  .sig .v { font-size: 18px; font-weight: 700; }
-  .sig.low .v::after { content: " ▼ low"; font-size: 12px; color: var(--bad); }
+  /* triptych: Ezio | link | gate */
+  .tri { display: grid; grid-template-columns: minmax(0, 1fr) 54px minmax(0, 1fr); align-items: stretch; margin-top: 16px; }
+  .link { align-self: center; height: 2px; background: var(--line2); position: relative; }
+  .link::before, .link::after { content: ""; position: absolute; top: -3px; width: 8px; height: 8px; border-radius: 50%; background: inherit; }
+  .link::before { left: -4px; } .link::after { right: -4px; }
+  .link.red { background: var(--bad); } .link.amber { background: var(--hold); } .link.green { background: var(--ok); }
+  .link .x { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); background: #fff; border: 2px solid currentColor; border-radius: 50%; width: 26px; height: 26px; display: grid; place-items: center; font-weight: 800; font-size: 13px; }
+  .link.red .x { color: var(--bad); } .link.amber .x { color: var(--hold); } .link.green .x { color: var(--ok); }
+  @media (max-width: 860px) { .tri { grid-template-columns: 1fr; } .link { width: 2px; height: 34px; justify-self: center; } .link::before, .link::after { left: -3px; } .link::before { top: -4px; } .link::after { top: auto; bottom: -4px; right: auto; } }
+  .layer { display: flex; flex-direction: column; gap: 10px; transition: transform .35s var(--ease); }
+  .layer:hover { transform: translateY(-2px); }
+  .layer .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+  .score { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .score .num { font-size: 56px; font-weight: 720; letter-spacing: -.04em; line-height: 1; font-variant-numeric: tabular-nums; }
+  .tier { font-size: 12px; font-weight: 750; letter-spacing: .08em; padding: 3px 9px; border-radius: 6px; border: 1.5px solid currentColor; }
+  .t-GREEN { color: var(--ok); } .t-YELLOW { color: var(--hold); } .t-RED { color: var(--bad); } .t-NA { color: var(--gray); }
+  .bars { display: grid; gap: 6px; }
+  .bar { display: grid; grid-template-columns: 78px 1fr 34px; gap: 8px; align-items: center; font-size: 12px; color: var(--ink2); }
+  .bar .tr { height: 5px; border-radius: 3px; background: var(--gray-soft); overflow: hidden; }
+  .bar .tr i { display: block; height: 100%; background: var(--ink2); border-radius: 3px; }
+  .bar.low .tr i { background: var(--hold); }
+  .bar b { text-align: right; font-variant-numeric: tabular-nums; }
+  .note { font-size: 13px; color: var(--ink2); background: var(--gray-soft); border-radius: 10px; padding: 8px 10px; }
+  .checks { display: grid; gap: 2px; }
+  .chk { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 7px 4px; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+  .chk:last-child { border-bottom: 0; }
+  .chk small { display: block; color: var(--ink3); font-size: 12px; overflow-wrap: anywhere; }
+  .sym { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 800; color: #fff; flex: none; }
+  .s-pass { background: var(--ok); } .s-fail { background: var(--bad); } .s-review { background: var(--hold); } .s-na { background: #c9cacd; }
+  .stxt { font-size: 11px; font-weight: 750; letter-spacing: .06em; }
+  .c-pass { color: var(--ok); } .c-fail { color: var(--bad); } .c-review { color: var(--hold); } .c-na { color: var(--gray); }
+  .fabhead { border-radius: 14px; padding: 10px 12px; background: var(--bad-soft); border: 1px solid rgba(204,47,37,.3); }
+  .fabhead .t { font-weight: 800; letter-spacing: .06em; color: var(--bad); font-size: 13px; }
+  .fabhead .n { font: 600 17px var(--serif); }
 
-  /* Highlighted memo */
-  .memo-view { font-family: Georgia, "Times New Roman", serif; font-size: 16px; line-height: 1.8; padding: 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); white-space: pre-wrap; overflow-wrap: anywhere; }
-  .case { border-radius: 3px; padding: 1px 2px; font-weight: 700; }
-  .case.verified { background: var(--ok-bg); color: var(--ok); outline: 1px solid var(--ok); }
-  .case.unknown { background: var(--hold-bg); color: var(--hold); outline: 1px dashed var(--hold); }
-  .case.fabricated { background: var(--bad-bg); color: var(--bad); outline: 2px solid var(--bad); text-decoration: line-through; }
-  .case.wrong { background: var(--bad-bg); color: var(--bad); outline: 2px dashed var(--bad); }
-  .case.unchecked { background: var(--neutral-bg); outline: 1px dotted var(--muted); }
-  .claim { text-decoration-line: underline; text-decoration-thickness: 2px; text-underline-offset: 4px; }
-  .claim.supported { text-decoration-color: var(--ok); text-decoration-style: solid; }
-  .claim.contradicted { text-decoration-color: var(--bad); text-decoration-style: wavy; }
-  .claim.unverified { text-decoration-color: var(--hold); text-decoration-style: dotted; }
-  .flag { box-shadow: inset 0 -0.55em 0 var(--hold-bg); font-weight: 700; }
-  .flag.bad { box-shadow: inset 0 -0.55em 0 var(--bad-bg); color: var(--bad); }
-  .flag.hold { color: var(--hold); }
-  .tag { font-family: system-ui, sans-serif; font-size: 11px; font-weight: 800; vertical-align: super; margin-left: 2px; padding: 0 4px; border-radius: 3px; background: var(--panel); border: 1px solid currentColor; white-space: nowrap; }
-  .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; margin-top: 6px; }
-  table { width: 100%; border-collapse: collapse; font-size: 14px; }
-  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
-  ul.evidence { margin: 0; padding-left: 20px; }
-  ul.evidence li { margin-bottom: 4px; }
+  /* 3D gate */
+  .gate { --u: 9px; width: calc(var(--u) * 17); height: calc(var(--u) * 13); perspective: calc(var(--u) * 70); display: grid; place-items: center; flex: none; }
+  .gate.sm { --u: 4.2px; }
+  .g-rig { position: relative; width: calc(var(--u) * 10); height: calc(var(--u) * 8); transform-style: preserve-3d; transform: rotateX(-18deg) rotateY(-32deg); }
+  .gate.sm[data-state=idle] .g-rig { animation: sway 9s ease-in-out infinite alternate; }
+  @keyframes sway { from { transform: rotateX(-18deg) rotateY(-42deg); } to { transform: rotateX(-18deg) rotateY(-18deg); } }
+  .g-rig > * { position: absolute; transform-style: preserve-3d; }
+  .g-floor { left: calc(var(--u) * -4); width: calc(var(--u) * 18); height: calc(var(--u) * 18); bottom: 0; transform-origin: bottom center; transform: translateZ(calc(var(--u) * 9)) rotateX(90deg);
+    background: radial-gradient(closest-side, rgba(20,22,28,.13), rgba(20,22,28,.04) 60%, transparent), repeating-linear-gradient(0deg, transparent 0 calc(var(--u) * 2 - 1px), rgba(20,22,28,.06) 0 calc(var(--u) * 2)), repeating-linear-gradient(90deg, transparent 0 calc(var(--u) * 2 - 1px), rgba(20,22,28,.06) 0 calc(var(--u) * 2));
+    border-radius: 50%; }
+  .g-post { bottom: 0; width: var(--u); height: calc(var(--u) * 7.6); }
+  .g-post.l { left: 0; } .g-post.r { left: calc(var(--u) * 9); }
+  .g-post i, .g-beam i { position: absolute; display: block; }
+  .g-post .f { inset: 0; transform: translateZ(calc(var(--u) * .5)); background: linear-gradient(180deg, #fff, #e4e4e2); outline: 1px solid rgba(0,0,0,.06); }
+  .g-post .s { top: 0; bottom: 0; left: 0; width: var(--u); transform: rotateY(90deg) translateZ(calc(var(--u) * .5)); background: linear-gradient(180deg, #ecece9, #cfcfcb); }
+  .g-post .k { inset: 0; transform: translateZ(calc(var(--u) * -.5)); background: #dcdcd8; }
+  .g-beam { left: calc(var(--u) * -.3); width: calc(var(--u) * 10.6); height: calc(var(--u) * .9); bottom: calc(var(--u) * 7.6); }
+  .g-beam .f { inset: 0; transform: translateZ(calc(var(--u) * .5)); background: linear-gradient(180deg, #fff, #e7e7e4); outline: 1px solid rgba(0,0,0,.06); }
+  .g-beam .t { left: 0; right: 0; top: 0; height: var(--u); transform: rotateX(90deg) translateZ(calc(var(--u) * .5)); background: #f6f6f4; }
+  .g-lamp { left: calc(var(--u) * 4.2); width: calc(var(--u) * 1.6); height: calc(var(--u) * .45); bottom: calc(var(--u) * 7.83); transform: translateZ(calc(var(--u) * .56)); border-radius: 99px; background: #c4c5c8; transition: background .3s, box-shadow .3s; }
+  .g-door { bottom: 0; width: calc(var(--u) * 4); height: calc(var(--u) * 6.2); transition: transform .9s cubic-bezier(.3,.9,.3,1.05), background .4s;
+    background: repeating-linear-gradient(90deg, rgba(255,255,255,.95) 0 calc(var(--u) * .7), rgba(220,221,224,.95) 0 calc(var(--u) * .8)); outline: 1px solid rgba(0,0,0,.12); }
+  .g-door.l { left: var(--u); transform-origin: left center; } .g-door.r { left: calc(var(--u) * 5); transform-origin: right center; }
+  .g-bar { left: calc(var(--u) * -.8); width: calc(var(--u) * 11.6); height: calc(var(--u) * .7); bottom: calc(var(--u) * 3); border-radius: 99px; background: var(--bad); opacity: 0; transform: translateZ(calc(var(--u) * 1.4)) translateY(calc(var(--u) * -6)); box-shadow: 0 0 calc(var(--u) * 2) rgba(204,47,37,.55); }
+  .g-doc { left: calc(var(--u) * 4.2); bottom: calc(var(--u) * .2); width: calc(var(--u) * 1.6); height: calc(var(--u) * 2.1); background: #fff; outline: 1px solid rgba(0,0,0,.2); transform: translateZ(calc(var(--u) * 6)); border-radius: 2px;
+    background-image: repeating-linear-gradient(180deg, transparent 0 calc(var(--u) * .35), rgba(0,0,0,.18) 0 calc(var(--u) * .42)); background-size: 70% 70%; background-position: center; background-repeat: no-repeat; }
+  .g-partner { left: calc(var(--u) * 3.5); bottom: 0; width: calc(var(--u) * 3); height: calc(var(--u) * 1.1); transform: translateZ(calc(var(--u) * -7)); background: linear-gradient(#fff, #dedede); outline: 1px solid rgba(0,0,0,.1); border-radius: 2px; }
+  .gate[data-state=scan] .g-lamp { background: #3d6bd8; box-shadow: 0 0 calc(var(--u) * 1.4) #3d6bd8; animation: blink 1s infinite; }
+  .gate[data-state=open] .g-door.l { transform: rotateY(82deg); } .gate[data-state=open] .g-door.r { transform: rotateY(-82deg); }
+  .gate[data-state=open] .g-lamp { background: var(--ok); box-shadow: 0 0 calc(var(--u) * 1.6) var(--ok); }
+  .gate[data-state=open] .g-doc { animation: through 1.4s .45s var(--ease) both; }
+  .gate[data-state=open] .g-partner { background: linear-gradient(#e8f6ee, #bfe3cd); transition: background .4s 1.3s; }
+  @keyframes through { to { transform: translateZ(calc(var(--u) * -6.6)) translateY(calc(var(--u) * -1.1)); } }
+  .gate[data-state=hold] .g-lamp { background: var(--hold); box-shadow: 0 0 calc(var(--u) * 1.6) var(--hold); animation: blink 1.6s infinite; }
+  .gate[data-state=hold] .g-doc { transform: translateZ(calc(var(--u) * 3.6)); outline: 2px solid var(--hold); box-shadow: 0 0 0 calc(var(--u) * .5) rgba(183,120,10,.25); transition: transform .9s var(--ease); }
+  .gate[data-state=shut] .g-lamp { background: var(--bad); box-shadow: 0 0 calc(var(--u) * 1.6) var(--bad); }
+  .gate[data-state=error] .g-lamp { background: var(--gray); box-shadow: none; }
+  .gate[data-state=shut] .g-door { background: repeating-linear-gradient(90deg, #fff 0 calc(var(--u) * .7), #f3c9c5 0 calc(var(--u) * .8)); }
+  .gate[data-state=shut] .g-door.l { animation: slamL .5s cubic-bezier(.5,0,.4,1.4) both; } .gate[data-state=shut] .g-door.r { animation: slamR .5s cubic-bezier(.5,0,.4,1.4) both; }
+  @keyframes slamL { from { transform: rotateY(60deg); } } @keyframes slamR { from { transform: rotateY(-60deg); } }
+  .gate[data-state=shut] .g-bar { opacity: 1; transform: translateZ(calc(var(--u) * 1.4)); transition: transform .45s .35s cubic-bezier(.5,0,.3,1.5), opacity .2s .35s; }
+  .gate[data-state=shut] .g-doc { animation: bounce .8s .3s var(--ease) both; outline: 2px solid var(--bad); }
+  @keyframes bounce { 40% { transform: translateZ(calc(var(--u) * 2.4)); } 100% { transform: translateZ(calc(var(--u) * 6.5)); } }
+  .gate-legend { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ink3); justify-content: center; margin-top: 2px; white-space: nowrap; }
+  .gate-legend .seg { width: 26px; height: 2px; background: var(--line2); }
+  .gate-legend .seg.ok { background: var(--ok); } .gate-legend .seg.cut { background: repeating-linear-gradient(90deg, var(--bad) 0 4px, transparent 0 7px); } .gate-legend .seg.wait { background: repeating-linear-gradient(90deg, var(--hold) 0 4px, transparent 0 7px); }
+  @media (prefers-reduced-motion: reduce) { .gate *, .gate .g-rig { animation: none !important; transition: none !important; } }
 
-  /* Review */
-  .review { border: 2px solid var(--hold); background: var(--hold-bg); border-radius: 8px; padding: 12px; margin-top: 14px; }
-  .review h2 { color: var(--hold); }
-  .question { background: var(--panel); border-left: 5px solid var(--hold); padding: 8px 10px; margin: 6px 0; font-weight: 600; }
-  .choice { display: flex; gap: 10px; flex-wrap: wrap; margin: 8px 0; }
-  .choice label { font-weight: 600; display: flex; gap: 6px; align-items: center; border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 6px 10px; margin: 0; cursor: pointer; }
-  .logged { margin-top: 10px; padding: 8px 10px; border: 2px solid var(--info); background: var(--info-bg); border-radius: 6px; font-weight: 600; }
+  /* decision drivers */
+  .drivers { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .drivers li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: baseline; font-size: 14px; padding: 9px 12px; border-radius: 12px; background: #fff; border: 1px solid var(--line); }
+  .lvl { font-size: 10.5px; font-weight: 800; letter-spacing: .06em; padding: 2px 7px; border-radius: 5px; color: #fff; white-space: nowrap; }
+  .lvl.APPROVE { background: var(--ok); } .lvl.HOLD_FOR_REVIEW { background: var(--hold); } .lvl.BLOCK { background: var(--bad); }
+  .src { font-size: 11px; color: var(--ink3); white-space: nowrap; }
+  @media (max-width: 600px) { .drivers li { grid-template-columns: 1fr; } }
 
-  /* Spinner */
-  .spinner-wrap { display: flex; gap: 12px; align-items: center; padding: 16px; border: 1px dashed var(--line); border-radius: 8px; }
-  .spinner { width: 28px; height: 28px; border: 4px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.9s linear infinite; flex: none; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } }
+  /* evidence cards */
+  .ev-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; perspective: 1200px; }
+  .ev { text-align: left; cursor: pointer; border-radius: 18px; padding: 14px 16px; background: #fff; border: 1px solid var(--line); border-top: 4px solid var(--gray); box-shadow: 0 14px 26px -22px rgba(0,0,0,.55); transition: transform .3s var(--ease), box-shadow .3s; display: flex; flex-direction: column; gap: 6px; width: 100%; }
+  .ev:hover { transform: translateY(-4px) rotateX(3deg) rotateY(-2deg); box-shadow: 0 22px 34px -22px rgba(0,0,0,.5); }
+  .ev.k-ok { border-top-color: var(--ok); } .ev.k-hold { border-top-color: var(--hold); } .ev.k-bad { border-top-color: var(--bad); }
+  .ev .nm { font: 600 16px/1.3 var(--serif); user-select: text; }
+  .ev .ct { font: 13px var(--serif); color: var(--ink2); user-select: text; }
+  .ev .ln { font-size: 12.5px; color: var(--ink2); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .stat { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 800; letter-spacing: .07em; }
+  .stat .sym { width: 18px; height: 18px; font-size: 10px; }
+  .k-ok .stat { color: var(--ok); } .k-hold .stat { color: var(--hold); } .k-bad .stat { color: var(--bad); }
+  .ev[aria-expanded=true] { grid-column: 1 / -1; cursor: default; }
+  .ev[aria-expanded=true]:hover { transform: none; }
+  .ev .more { font-size: 12px; color: var(--ink3); font-weight: 600; cursor: pointer; }
+  .det { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 8px 14px; font-size: 14px; margin-top: 6px; cursor: text; user-select: text; }
+  .det dt { color: var(--ink3); font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; padding-top: 2px; }
+  .det dd { margin: 0; overflow-wrap: anywhere; }
+  .det .quote { font-family: var(--serif); background: #f7f7f5; padding: 8px 12px; border-radius: 10px; border-left: 3px solid var(--line2); }
+  .fv { display: inline-grid; grid-template-columns: auto auto; gap: 2px 10px; }
+  .fv .bad { color: var(--bad); font-weight: 700; text-decoration: line-through; } .fv .ok { color: var(--ok); font-weight: 700; }
+  @media (max-width: 600px) { .det { grid-template-columns: 1fr; } }
 
-  /* Samples */
-  .sample-list { max-height: 260px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; }
-  .sample-list label { font-weight: 400; display: flex; gap: 8px; padding: 6px 8px; margin: 0; border-bottom: 1px solid var(--line); cursor: pointer; }
-  .sample-list label:last-child { border-bottom: 0; }
-  .sample-list code { font-weight: 700; flex: none; }
-  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; margin-top: 12px; }
-  .card { border: 2px solid var(--line); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 6px; background: var(--panel); }
-  .card .lbl { font-size: 18px; font-weight: 800; padding: 4px 8px; border-radius: 4px; border: 2px solid; }
-  .card .act { font-weight: 800; font-size: 14px; }
-  .card .act.ran { color: var(--ok); }
-  .card .act.not { color: var(--bad); }
-  .card .txt { font-family: Georgia, serif; font-size: 13px; color: var(--muted); max-height: 5.4em; overflow: hidden; }
-  .card .why { font-size: 13px; }
-  .summary { font-size: 15px; font-weight: 700; margin-top: 10px; padding: 8px 10px; border-radius: 6px; background: var(--info-bg); border-left: 6px solid var(--info); }
-  details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
-  pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; background: var(--bg); padding: 8px; border-radius: 6px; max-height: 320px; overflow: auto; }
-  .audit-table td.dec { font-weight: 800; white-space: nowrap; }
-  .audit-table td.time { white-space: nowrap; font-size: 12px; color: var(--muted); }
-  .sr { position: absolute; left: -9999px; }
+  /* annotated memo */
+  .memo-view { font: 16px/1.85 var(--serif); padding: 18px 20px; border-radius: 16px; background: #fff; border: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 420px; overflow: auto; }
+  .hl { border-radius: 4px; padding: 1px 3px; font-weight: 600; }
+  .hl.ok { background: var(--ok-soft); color: var(--ok); box-shadow: inset 0 0 0 1px rgba(24,134,75,.4); }
+  .hl.hold { background: var(--hold-soft); color: #8a5a00; box-shadow: inset 0 0 0 1px rgba(183,120,10,.5); }
+  .hl.bad { background: var(--bad-soft); color: var(--bad); box-shadow: inset 0 0 0 1.5px var(--bad); }
+  .hl .tg { font: 800 10px var(--sans); letter-spacing: .05em; margin-left: 4px; vertical-align: 2px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; margin-top: 8px; color: var(--ink2); }
+
+  /* review workspace */
+  .review { margin-top: 18px; border-radius: 24px; padding: 22px; background: linear-gradient(180deg, #fff, #fffaf0); border: 1px solid rgba(183,120,10,.35); box-shadow: var(--shadow); animation: slidein .6s var(--ease) both; scroll-margin-top: 16px; }
+  @keyframes slidein { from { opacity: 0; transform: translateY(24px); } }
+  .review .cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; margin-top: 12px; }
+  @media (max-width: 860px) { .review .cols { grid-template-columns: 1fr; } }
+  .question { background: #fff; border: 1px solid var(--line); border-left: 4px solid var(--hold); border-radius: 10px; padding: 9px 12px; margin: 0 0 8px; font-size: 14px; }
+  .review textarea { width: 100%; min-height: 92px; border: 1px solid var(--line2); border-radius: 12px; padding: 10px 12px; background: #fff; font-size: 14px; resize: vertical; }
+  .review label { font-weight: 600; font-size: 13px; display: block; margin: 12px 0 6px; }
+  .logged { margin-top: 12px; padding: 12px 14px; border-radius: 14px; background: #fff; border: 2px solid var(--ink); font-size: 14px; }
+  .logged b { display: block; font-size: 16px; }
+
+  /* tables (batch + history) */
+  section.block { margin-top: 64px; scroll-margin-top: 12px; }
+  .sec-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  .tbl-wrap { overflow-x: auto; border-radius: 18px; background: #fff; border: 1px solid var(--line); box-shadow: var(--shadow); }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 10.5px; text-transform: uppercase; letter-spacing: .1em; color: var(--ink3); font-weight: 650; background: #fafaf9; }
+  th.hot { color: var(--ink); }
+  tr:last-child td { border-bottom: 0; }
+  tbody tr:hover td { background: #fbfbfa; }
+  td.memo { font-family: var(--serif); color: var(--ink2); max-width: 320px; }
+  td.nowrap { white-space: nowrap; }
+  .dchip { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; font-size: 12px; letter-spacing: .04em; white-space: nowrap; }
+  .dchip.APPROVE { color: var(--ok); } .dchip.HOLD_FOR_REVIEW { color: var(--hold); } .dchip.BLOCK { color: var(--bad); } .dchip.ERR { color: var(--gray); }
+  .sent { font-weight: 800; font-size: 12.5px; white-space: nowrap; display: inline-block; padding: 3px 9px; border-radius: 8px; }
+  .sent.yes { color: var(--ok); background: var(--ok-soft); } .sent.no { color: var(--bad); background: var(--bad-soft); } .sent.wait { color: #8a5a00; background: var(--hold-soft); } .sent.unk { color: var(--gray); background: var(--gray-soft); }
+  .sumrow { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 12px; }
+  .stat-tile { background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; box-shadow: 0 12px 24px -22px rgba(0,0,0,.6); }
+  .stat-tile .v { font-size: 30px; font-weight: 720; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+  .stat-tile .k { font-size: 11.5px; color: var(--ink3); }
+  .stat-tile.ok .v { color: var(--ok); } .stat-tile.bad .v { color: var(--bad); } .stat-tile.hold .v { color: var(--hold); }
+  .assert { font-size: 14px; font-weight: 650; padding: 10px 14px; border-radius: 12px; margin-bottom: 12px; background: #fff; border: 1px solid var(--line); }
+  .assert.good { border-color: rgba(24,134,75,.4); color: var(--ok); } .assert.badx { border-color: var(--bad); color: var(--bad); }
+  .spin { width: 14px; height: 14px; border: 2px solid var(--line2); border-top-color: var(--ink); border-radius: 50%; animation: rot .8s linear infinite; display: inline-block; vertical-align: -2px; }
+  @keyframes rot { to { transform: rotate(360deg); } }
+  details.hist > summary { list-style: none; cursor: pointer; }
+  details.hist > summary::-webkit-details-marker { display: none; }
+  .hrow { display: grid; grid-template-columns: 140px 150px minmax(0, 1fr) 110px 130px 150px; gap: 10px; align-items: center; padding: 11px 16px; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .hrow.hd { font-size: 10.5px; text-transform: uppercase; letter-spacing: .1em; color: var(--ink3); background: #fafaf9; font-weight: 650; }
+  details.hist[open] > summary .hrow, details.hist > summary:hover .hrow { background: #fbfbfa; }
+  .hbody { padding: 12px 16px 16px; border-bottom: 1px solid var(--line); background: #fcfcfb; font-size: 13.5px; }
+  .hbody > div { margin-top: 6px; }
+  .hbody ul { margin: 6px 0; padding-left: 18px; } .hbody li { margin-bottom: 4px; overflow-wrap: anywhere; }
+  .hmemo { font-family: var(--serif); color: var(--ink2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @media (max-width: 900px) { .hrow { grid-template-columns: 1fr 1fr; } .hrow .hmemo { grid-column: 1 / -1; } .hrow.hd { display: none; } }
+  details.raw summary { cursor: pointer; font-size: 13px; color: var(--ink2); margin-top: 14px; }
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px var(--mono); background: #fff; border: 1px solid var(--line); padding: 12px; border-radius: 12px; max-height: 360px; overflow: auto; }
+  ul.plain { margin: 0; padding-left: 18px; font-size: 13.5px; } ul.plain li { margin-bottom: 5px; overflow-wrap: anywhere; }
+  .empty { color: var(--ink3); font-style: italic; padding: 14px 16px; }
+  footer { text-align: center; color: var(--ink3); font: italic 14px var(--serif); padding: 40px 20px 30px; }
+
+  /* staged reveal (content is in the DOM immediately; this only animates it) */
+  .revealing .rv { animation: rise .6s var(--ease) both; animation-delay: var(--d, 0ms); }
+  .revealing .ring .arc { animation: draw .7s var(--ease) both; animation-delay: 700ms; }
+  .revealing .ring .glyph { animation: drawg .4s ease-out both; animation-delay: 1100ms; }
+  @keyframes rise { from { opacity: 0; transform: translateY(18px) scale(.985); } }
+  @keyframes draw { from { stroke-dashoffset: 289; } }
+  @keyframes drawg { from { stroke-dashoffset: 80; } }
+  #skip { position: fixed; right: 18px; bottom: 18px; z-index: 5; }
+  .nomotion .rv, .nomotion .ring .arc, .nomotion .ring .glyph, .nomotion .chip, .nomotion .review, .nomotion .gate * { animation: none !important; transition: none !important; }
+  @media (prefers-reduced-motion: reduce) { .rv, .ring .arc, .ring .glyph, .chip, .review, .scan, .ev, .layer { animation: none !important; transition: none !important; } }
 </style>
 </head>
 <body>
-<header>
-  <h1>Paralegal memo check</h1>
-  <p>Paralegal → supervising partner. Every memo passes the firm's approval gate before it is submitted. Only an <strong>APPROVE</strong> from the gate submits it.</p>
+<div class="void" aria-hidden="true"><div class="floor"></div></div>
+
+<header class="top">
+  <div class="mini" aria-live="polite">
+    <div id="mini-gate"></div>
+    <div class="lbl">Outbound gate<b id="mini-state">Standing by</b></div>
+  </div>
+  <div class="brand">
+    <div class="wordmark">APPROVAL GATE</div>
+    <div class="tagline">Nothing passes without proof.</div>
+  </div>
+  <nav class="links" aria-label="Sections">
+    <span class="pill" id="sys"><span class="dot"></span>Checking gate…</span>
+    <button class="navbtn" data-go="batch">Samples</button>
+    <button class="navbtn" data-go="history">Audit trail</button>
+    <button class="navbtn" id="motion" aria-pressed="true">Motion on</button>
+  </nav>
 </header>
+
 <main>
   <div id="global-banners" aria-live="polite"></div>
 
-  <div class="grid2">
-    <div>
-      <section class="panel" aria-labelledby="h-compose">
-        <h2 id="h-compose">1. Draft memo</h2>
-        <label for="memo">Memo text <span class="hint">(required, at most 20,000 characters)</span></label>
-        <textarea id="memo" placeholder="Paste the memo you are about to send to the partner. Cite cases the way you would in the memo, e.g. Gideon v. Wainwright, 372 U.S. 335 (1963)."></textarea>
-        <div id="memo-count" class="counter">0 / 20,000</div>
-        <details>
-          <summary>Optional matter details</summary>
-          <label for="context">Context</label>
-          <textarea id="context" placeholder='{"matter": "State v. Doe", "jurisdiction": "CA"}'></textarea>
-          <div class="hint">Leave empty for none. Format: {"matter": "State v. Doe"}.</div>
-        </details>
-        <div id="input-error" aria-live="assertive"></div>
-        <div class="row">
-          <button id="check">Check memo with the gate</button>
-          <button id="clear" class="secondary">Clear</button>
-        </div>
-        <p class="hint">The gate asks Ezio to score the memo and checks every case against the firm's trusted and fabricated citation lists. This page only displays the gate's call; it never decides and never submits on its own.</p>
-      </section>
-
-      <section class="panel" aria-labelledby="h-samples">
-        <h2 id="h-samples">3. Try sample memos side by side</h2>
-        <p class="hint">Practice memos (answers hidden). Run several at once and watch which ones actually reach the partner. <strong>Only an APPROVE submitted the memo to the partner; HOLD and BLOCK results were NOT sent.</strong></p>
-        <div id="sample-list" class="sample-list"><div class="empty" style="padding:8px">Loading samples…</div></div>
-        <div class="row">
-          <button id="run-selected">Run selected</button>
-          <button id="run-all" class="secondary">Run all</button>
-          <button id="select-none" class="secondary">Clear selection</button>
-        </div>
-      </section>
-    </div>
-
-    <div>
-      <section class="panel" aria-labelledby="h-result">
-        <h2 id="h-result">2. Gate decision</h2>
-        <div id="result" aria-live="polite"><p class="empty">No memo checked yet. Enter a memo and press “Check memo with the gate”.</p></div>
-      </section>
-    </div>
+  <div class="flow" aria-label="Workflow">
+    <span class="st on" id="f1"><i>1</i>Prepare memorandum</span><span class="sep"></span>
+    <span class="st" id="f2"><i>2</i>Verify cited authorities</span><span class="sep"></span>
+    <span class="st" id="f3"><i>3</i>Forward to supervising partner</span>
   </div>
 
-  <section class="panel" aria-labelledby="h-sample-results">
-    <h2 id="h-sample-results">Sample results</h2>
-    <div id="sample-summary"></div>
-    <div id="sample-cards" class="cards"><p class="empty">No samples run yet.</p></div>
+  <section class="stage" id="stage" aria-label="Memo inspection">
+    <div class="depth">
+      <div class="nodes" aria-hidden="true"><span style="left:2%;top:18%"></span><span style="right:1%;top:30%"></span><span style="left:6%;bottom:6%"></span><span style="right:7%;bottom:2%"></span><span style="left:48%;top:-1%"></span></div>
+      <div class="chamber" id="chamber">
+        <div class="glare" aria-hidden="true"></div><div class="rim" aria-hidden="true"></div>
+        <div class="ch-head">
+          <div class="ch-title">
+            <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><rect x="6" y="3" width="18" height="24" rx="3" fill="#fff" stroke="#1b1c1f" stroke-width="1.4"/><path d="M10 10h10M10 14h10M10 18h6" stroke="#8b8e95" stroke-width="1.4" stroke-linecap="round"/></svg>
+            <div>Legal memorandum → supervising partner<small>Every cited authority is checked against the firm's trusted and fabricated citation lists, independently of Ezio.</small></div>
+          </div>
+          <span id="inspector" role="status"><span class="dot"></span><span id="inspector-text">Inspector ready</span></span>
+        </div>
+        <div class="surface">
+          <label for="memo" class="sr">Memo text</label>
+          <textarea id="memo" spellcheck="false" placeholder="Paste the AI-drafted memorandum you are about to send to the supervising partner.&#10;&#10;Cite cases as you would in the memo, e.g. Gideon v. Wainwright, 372 U.S. 335 (1963)."></textarea>
+          <div class="scan" aria-hidden="true"></div>
+        </div>
+        <div class="ch-foot">
+          <span id="memo-count" class="counter">0 / 20,000</span>
+          <button class="btn ghost small" id="ctx-toggle" aria-expanded="false" aria-controls="ctx-panel">Matter context</button>
+          <button class="btn ghost small" id="clear">Clear</button>
+          <button class="btn primary" id="check" disabled>Inspect &amp; route <kbd>⌘↵</kbd></button>
+        </div>
+        <div id="ctx-panel" hidden>
+          <label for="context">Matter context (optional JSON object)</label>
+          <textarea id="context" placeholder='{"matter": "State v. Doe", "jurisdiction": "CA"}'></textarea>
+          <div class="hint">Leave empty for none. Must be a JSON object.</div>
+        </div>
+        <div id="input-error" aria-live="assertive" style="margin-top:10px;position:relative"></div>
+      </div>
+    </div>
+    <div class="chips" id="chips" aria-hidden="true"></div>
+    <div class="dock" role="group" aria-label="Demo memos from the practice set">
+      <button class="preset" data-id="pl-02" disabled><span class="sw" style="background:var(--ok)"></span><span><span class="n">01 · pl-02</span><div class="t">SAFE MEMO</div><div class="d">Trusted citation</div></span></button>
+      <button class="preset" data-id="pl-07" disabled><span class="sw" style="background:var(--bad)"></span><span><span class="n">02 · pl-07</span><div class="t">FABRICATED CASE</div><div class="d">Ezio vs. independent check</div></span></button>
+      <button class="preset" data-id="pl-11" disabled><span class="sw" style="background:var(--hold)"></span><span><span class="n">03 · pl-11</span><div class="t">HUMAN REVIEW</div><div class="d">Unverifiable authority</div></span></button>
+      <button class="preset" id="run-all-dock" disabled><span class="sw" style="background:var(--ink)"></span><span><span class="n">all · 16</span><div class="t">RUN ALL SAMPLES</div><div class="d">Who reached the partner?</div></span></button>
+    </div>
+    <p class="hint" style="text-align:center;margin-top:10px">Presets load the real practice memo. The decision always comes from the gate (POST /decide), never from this page.</p>
   </section>
 
-  <section class="panel" aria-labelledby="h-audit">
-    <h2 id="h-audit">4. Audit trail</h2>
-    <div class="row" style="margin-top:0">
-      <button id="refresh-audit" class="secondary">Refresh</button>
-      <span class="hint">The last 50 decisions the check made. Reviewer choices are recorded in a separate review log.</span>
+  <section id="result" aria-live="polite" aria-label="Gate decision"></section>
+
+  <section class="block" id="batch" aria-labelledby="h-batch">
+    <div class="sec-head">
+      <div><div class="kicker">Simulate the action</div><h2 id="h-batch">Practice memos, side by side</h2>
+        <div class="hint">Each memo goes through the real gate. Only an APPROVE runs <code>submit_memo_to_partner</code> (logged to actions.log).</div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn small" id="select-none">Clear selection</button>
+        <button class="btn small" id="run-selected">Run selected</button>
+        <button class="btn primary" id="run-all">Run all 16 samples</button>
+      </div>
     </div>
-    <div id="audit"></div>
-    <h3>Reviews logged this session</h3>
-    <div id="reviews"><p class="empty">None yet.</p></div>
+    <div id="sample-summary"></div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th><span class="sr">Select</span></th><th>Sample</th><th>Memorandum</th><th>Ezio</th><th>Gate decision</th><th class="hot">Sent to partner?</th><th>Key reason</th><th></th></tr></thead>
+      <tbody id="sample-rows"><tr><td colspan="8" class="empty">Loading practice memos…</td></tr></tbody>
+    </table></div>
+  </section>
+
+  <section class="block" id="history" aria-labelledby="h-history">
+    <div class="sec-head">
+      <div><div class="kicker">Audit trail</div><h2 id="h-history">Decision history</h2>
+        <div class="hint">Last 50 gate decisions from audit_log.jsonl (GET /api/audit). Click a row for the full record. Reviewer decisions are logged to review_log.jsonl.</div></div>
+      <button class="btn small" id="refresh-audit">Refresh</button>
+    </div>
+    <div class="tbl-wrap" id="audit"><div class="empty">Loading audit trail…</div></div>
+    <h3>Reviewer decisions logged this session</h3>
+    <div class="tbl-wrap" id="reviews"><div class="empty">None yet. Reviews appear here once POST /review confirms them.</div></div>
   </section>
 </main>
+<footer>An AI trust score is an opinion. The gate requires evidence before a memorandum reaches the partner.</footer>
+<button class="btn" id="skip" hidden>Skip animation</button>
 
 <script>
 "use strict";
@@ -214,28 +468,39 @@ const PERSONA = "paralegal";
 const MAX_CHARS = 20000;
 const CLIENT_TIMEOUT_MS = 65000;   // harness allows 60 s per decision; give the wrapper a little slack
 const LABELS = { APPROVE: "APPROVE", HOLD_FOR_REVIEW: "HOLD FOR REVIEW", BLOCK: "BLOCK" };
-const ICONS = { APPROVE: "✓", HOLD_FOR_REVIEW: "‖", BLOCK: "✕" };
-const MEANING = {
-  APPROVE: "This memo goes to the partner as written. The partner may rely on its citations in advice or a filing.",
-  HOLD_FOR_REVIEW: "Held: the memo was NOT sent. Approving it anyway would put an unverified citation or claim in front of the partner. A reviewer must answer the question below first.",
-  BLOCK: "Blocked: the memo was NOT sent. Approving it would hand the partner a fabricated case, a misstated holding, or a contradicted claim, which is the kind of error courts sanction.",
+const SYM = { APPROVE: "✓", HOLD_FOR_REVIEW: "‖", BLOCK: "✕" };
+const CONSEQUENCE = {
+  APPROVE: "Approving means the memorandum goes to the supervising partner now, and the partner may rely on its cited authorities in advice or a filing.",
+  HOLD_FOR_REVIEW: "Not forwarded. A cited authority or claim could not be verified; approving it anyway would put an unverified citation in front of the partner. Human review required.",
+  BLOCK: "Not forwarded. Approving it would hand the partner a fabricated authority, a misstated holding, or a contradicted claim — the kind of error courts sanction.",
 };
-const CASE_VERDICT_TEXT = { verified: "verified", unknown: "unknown", fabricated: "fabricated", wrong: "wrong detail", unchecked: "not in evidence" };
+const CASE_KINDS = { fabricated: "FABRICATED", unverified_case: "UNKNOWN", unverified_citation: "UNKNOWN", citation_unverified: "UNKNOWN", citation_mismatch: "DETAIL_MISMATCH", year_mismatch: "DETAIL_MISMATCH", holding: "DETAIL_MISMATCH" };
+const STATUS_TEXT = { VERIFIED: "VERIFIED", UNKNOWN: "UNKNOWN", FABRICATED: "FABRICATED", DETAIL_MISMATCH: "DETAIL MISMATCH" };
+const STATUS_RANK = { FABRICATED: 3, DETAIL_MISMATCH: 2, UNKNOWN: 1, VERIFIED: 0 };
 
-// ---------- tiny DOM helpers (textContent only; memo, evidence and audit text are never parsed as HTML) ----------
+// ---------- DOM helpers (textContent only; backend text is never parsed as HTML) ----------
 function el(tag, attrs, ...kids) {
   const n = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs || {})) {
     if (v == null || v === false) continue;
     if (k === "class") n.className = v; else if (k === "text") n.textContent = v; else n.setAttribute(k, v);
   }
-  for (const k of kids.flat()) if (k != null && k !== false) n.append(k instanceof Node ? k : document.createTextNode(String(k)));
+  for (const k of kids.flat(Infinity)) if (k != null && k !== false) n.append(k instanceof Node ? k : document.createTextNode(String(k)));
   return n;
 }
+const SVGNS = "http://www.w3.org/2000/svg";
+function svg(tag, attrs, ...kids) { const n = document.createElementNS(SVGNS, tag); for (const [k, v] of Object.entries(attrs || {})) n.setAttribute(k, v); kids.forEach((k) => n.append(k)); return n; }
 const $ = (id) => document.getElementById(id);
-function banner(kind, title, body) { return el("div", { class: "banner " + kind, role: kind === "error" ? "alert" : "status" }, el("strong", { text: title }), body ? el("span", { text: body }) : null); }
 const get = (o, path) => path.split(".").reduce((a, k) => (a && typeof a === "object" ? a[k] : undefined), o);
-const fmt = (v) => (typeof v === "number" ? (Number.isInteger(v) ? String(v) : v.toFixed(1)) : v == null ? "—" : String(v));
+const fmt = (v) => (typeof v === "number" ? (Number.isInteger(v) ? String(v) : String(Math.round(v * 10) / 10)) : v == null ? "—" : String(v));
+const norm = (s) => String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
+function banner(kind, title, body, ...extra) {
+  return el("div", { class: "banner " + kind, role: kind === "error" ? "alert" : "status" },
+    el("span", { class: "ic", "aria-hidden": "true" }, kind === "info" ? "i" : "!"),
+    el("div", {}, el("strong", { text: title }), body ? el("span", { text: body }) : null, extra));
+}
+let MOTION = !matchMedia("(prefers-reduced-motion: reduce)").matches;
+try { const m = localStorage.getItem("ag-motion"); if (m) MOTION = m === "on"; } catch (_) {}
 
 // ---------- plumbing: the only calls this page makes ----------
 async function postJSON(url, body, signal) {
@@ -243,8 +508,8 @@ async function postJSON(url, body, signal) {
   try {
     response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal });
   } catch (e) {
-    if (e.name === "AbortError") throw Object.assign(new Error("No answer from the memo check within 65 seconds."), { kind: "timeout" });
-    throw Object.assign(new Error("Could not reach the memo check. Ask whoever runs it to restart it, then try again."), { kind: "network" });
+    if (e.name === "AbortError") throw Object.assign(new Error("No response from the gate within 65 seconds. Nothing was forwarded."), { kind: "timeout" });
+    throw Object.assign(new Error("Could not reach the gate. Is `python3 gate.py serve --persona paralegal` still running?"), { kind: "network" });
   }
   let data = null;
   try { data = await response.json(); } catch (_) { /* non-JSON body */ }
@@ -255,29 +520,139 @@ async function postJSON(url, body, signal) {
   if (!data || typeof data !== "object") throw Object.assign(new Error("The gate returned an unreadable response."), { kind: "server" });
   return data;
 }
-function decide(text, context, signal) { return postJSON("/decide", { text, persona: PERSONA, context }, signal); }
+async function decide(text, context, signal) {
+  const r = await postJSON("/decide", { text, persona: PERSONA, context }, signal);
+  if (!LABELS[r.decision] || typeof r.reason !== "string") throw Object.assign(new Error("The gate's response had no valid decision. Nothing was forwarded."), { kind: "shape" });
+  return r;
+}
 async function getJSON(url) {
-  const r = await fetch(url);
-  const d = await r.json();
-  if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+  let r;
+  try { r = await fetch(url); } catch (_) { throw new Error("The gate is unreachable."); }
+  let d = null; try { d = await r.json(); } catch (_) {}
+  if (!r.ok || !d) throw new Error((d && d.error) || `HTTP ${r.status}`);
   return d;
 }
 
 // ---------- reading the wrapper's response (display only; nothing here changes the decision) ----------
-function signalsOf(result) {
+function ezioOf(result) {
   const ez = result.ezio || {};
   const acc = get(ez, "dimensions.accuracy") || {};
   return {
     error: ez.error || null,
     tier: get(ez, "verdict.tier"), score: get(ez, "verdict.score"), label: get(ez, "verdict.label"), summary: get(ez, "verdict.summary"),
-    accStatus: acc.status, accScore: acc.score, total: acc.claims_total, verified: acc.claims_verified, contradicted: acc.claims_contradicted,
+    accStatus: acc.status, total: acc.claims_total, verified: acc.claims_verified, contradicted: acc.claims_contradicted,
     bias: get(ez, "dimensions.bias.score"), tone: get(ez, "dimensions.tone.score"), agreement: get(ez, "dimensions.agreement.score"),
-    claims: Array.isArray(ez.claims) ? ez.claims : [],
+    claims: Array.isArray(ez.claims) ? ez.claims.filter((c) => c && typeof c === "object") : [],
   };
 }
-function evidenceOf(result) { return Array.isArray(result.evidence) ? result.evidence.map(String) : []; }
+const findingsOf = (r) => (Array.isArray(get(r, "signals.source_of_truth")) ? r.signals.source_of_truth.filter((f) => f && typeof f === "object") : []);
+const verifiedOf = (r) => (Array.isArray(get(r, "signals.verified")) ? r.signals.verified.filter((v) => v && v.case) : []);
+const policyOf = (r) => (Array.isArray(get(r, "signals.policy")) ? r.signals.policy.filter((p) => Array.isArray(p) && p.length >= 2) : []);
+const hasStructured = (r) => Array.isArray(get(r, "signals.source_of_truth"));
+function parseTrusted(s) {
+  const m = /trusted_citations\.json:\s*(.+?),\s*([^,]+?)\s*\((\d{4})\),\s*holding:\s*"(.*)"/.exec(s || "");
+  return m ? { case: m[1], citation: m[2], year: m[3], holding: m[4] } : null;
+}
+function parseFabricated(s) { const m = /known_fabricated\.json:\s*"(.+?)"\s*\((.*)\)\s*$/.exec(s || ""); return m ? { case: m[1], note: m[2] } : null; }
+function parseExpected(msg) { const m = /Expected\s+"?([^"]+?)"?,\s*found\s+"?([^"(]+?)"?\s*(?:\(|\.?$)/.exec(msg || ""); return m ? { expected: m[1].trim(), found: m[2].trim() } : null; }
+const kindLabel = { citation_mismatch: "Reporter citation", year_mismatch: "Decision year", holding: "Holding" };
 
-// Case names written in the memo. Purely lexical: finds "X v. Y" and short cites like "Gideon, 372 U.S. 335".
+// One card per cited authority, built from the gate's structured findings and verified list.
+function authorities(result) {
+  const map = new Map();
+  const card = (key, name) => { if (!map.has(norm(key))) map.set(norm(key), { name, status: "VERIFIED", issues: [], verified: [], level: null }); return map.get(norm(key)); };
+  for (const f of findingsOf(result)) {
+    const st = CASE_KINDS[f.kind];
+    if (!st) continue;
+    const c = card(f.case || f.quote, f.case || f.quote || "Unnamed citation");
+    if (!c.issues.length || STATUS_RANK[st] > STATUS_RANK[c.status]) c.status = st;
+    c.issues.push(f);
+    if (f.level === "BLOCK" || !c.level) c.level = f.level;
+  }
+  for (const v of verifiedOf(result)) card(v.case, v.case).verified.push(v);
+  for (const c of map.values()) {
+    if (!c.issues.length) c.status = "VERIFIED";
+    c.tone = c.status === "VERIFIED" ? "ok" : c.status === "UNKNOWN" ? "hold" : c.level === "BLOCK" ? "bad" : "hold";
+    const src = c.issues.find((i) => parseTrusted(i.list_entry));
+    c.trusted = parseTrusted(src ? src.list_entry : "") || c.verified.map((v) => parseTrusted(v.note)).find(Boolean) || null;
+    c.fab = c.issues.map((i) => parseFabricated(i.list_entry)).find(Boolean) || null;
+    const w = c.verified.map((v) => /\(memo: "(.+?)"\)/.exec(v.note)).find(Boolean);
+    c.written = w ? w[1] : c.name;
+  }
+  return [...map.values()].sort((a, b) => STATUS_RANK[b.status] - STATUS_RANK[a.status]);
+}
+
+// The seven independent checks, each driven by findings of a given kind. Never "pass" when nothing was cited.
+function independentChecks(result, auths) {
+  const f = findingsOf(result);
+  const failed = f.find((x) => !x.kind && /source-of-truth check failed/.test(x.message || ""));
+  const nCases = auths.length;
+  const verifiedN = auths.filter((a) => a.status === "VERIFIED").length;
+  const row = (name, kinds, needsCases, passText) => {
+    if (failed) return { name, st: "na", detail: "Check unavailable: " + failed.message };
+    const hits = f.filter((x) => kinds.includes(x.kind));
+    if (hits.length) return { name, st: hits.some((h) => h.level === "BLOCK") ? "fail" : "review", detail: hits.map((h) => h.message).join(" · ") };
+    if (needsCases && !nCases) return { name, st: "na", detail: "No case citations in this memo" };
+    if (needsCases && !verifiedN) return { name, st: "na", detail: "Not comparable: no cited authority has a trusted record" };
+    return { name, st: "pass", detail: passText };
+  };
+  return [
+    row("Case identity", ["fabricated", "unverified_case", "unverified_citation"], true, `${verifiedN} of ${nCases} authorit${nCases === 1 ? "y" : "ies"} found on the trusted list`),
+    row("Reporter citation", ["citation_mismatch", "citation_unverified"], true, "Reporter citations match the trusted list"),
+    row("Decision year", ["year_mismatch"], true, "Years match the trusted list"),
+    row("Holding", ["holding"], true, "Stated holdings consistent with the trusted list"),
+    row("Known fabricated authorities", ["fabricated"], false, "None on the firm's fabricated-citation list"),
+    row("Unknown / unsupported authorities", ["unverified_case", "unverified_citation", "citation_unverified"], false, "Every cited authority is on a firm list"),
+    row("Overconfident language", ["advocacy"], false, "Neutral, objective tone"),
+  ];
+}
+
+function disagreement(result, ez, auths) {
+  if (ez.error || !ez.tier) return null;
+  const blockKinds = new Set(findingsOf(result).filter((f) => f.level === "BLOCK").map((f) => f.kind));
+  const holdKinds = new Set(findingsOf(result).filter((f) => f.level === "HOLD_FOR_REVIEW").map((f) => f.kind));
+  if (ez.tier === "GREEN" && result.decision === "BLOCK") {
+    const why = [];
+    if (blockKinds.has("fabricated")) why.push("a fabricated authority");
+    if (blockKinds.has("holding")) why.push("a misstated holding");
+    if (blockKinds.has("year_mismatch")) why.push("a wrong decision year");
+    if (blockKinds.has("citation_mismatch")) why.push("a wrong reporter citation");
+    const fab = auths.find((a) => a.status === "FABRICATED");
+    return { tone: "red", head: `EZIO SAID ${ez.tier} · ${fmt(ez.score)}. WE INTERCEPTED.`,
+      sub: why.length ? `Independent citation verification detected ${why.join(" and ")}${fab ? `: ${fab.name}` : ""}.` : "Independent checks found a proven error Ezio's score did not reflect." };
+  }
+  if (ez.tier === "GREEN" && result.decision === "HOLD_FOR_REVIEW") {
+    const why = [];
+    if ([...holdKinds].some((k) => CASE_KINDS[k] === "UNKNOWN")) why.push("could not verify a cited authority");
+    if (holdKinds.has("holding") || holdKinds.has("fabricated")) why.push("found an ambiguous citation");
+    if (holdKinds.has("advocacy")) why.push("flagged overconfident language");
+    return { tone: "amber", head: `EZIO SAID ${ez.tier} · ${fmt(ez.score)}. WE PAUSED FOR A HUMAN.`, sub: why.length ? `Independent verification ${why.join(" and ")}.` : "Gate policy found something a person must confirm." };
+  }
+  if (ez.tier !== "GREEN" && result.decision === "APPROVE") return { tone: "amber", head: "EZIO AND THE GATE DIFFER", sub: "The gate's decision stands." };
+  return null;
+}
+
+// ---------- the 3D gate ----------
+function makeGate(small) {
+  return el("div", { class: "gate" + (small ? " sm" : ""), "data-state": "idle", "aria-hidden": "true" },
+    el("div", { class: "g-rig" },
+      el("div", { class: "g-floor" }), el("div", { class: "g-partner" }),
+      el("div", { class: "g-post l" }, el("i", { class: "k" }), el("i", { class: "s" }), el("i", { class: "f" })),
+      el("div", { class: "g-door l" }), el("div", { class: "g-door r" }),
+      el("div", { class: "g-post r" }, el("i", { class: "k" }), el("i", { class: "s" }), el("i", { class: "f" })),
+      el("div", { class: "g-beam" }, el("i", { class: "t" }), el("i", { class: "f" })), el("div", { class: "g-lamp" }),
+      el("div", { class: "g-bar" }), el("div", { class: "g-doc" })));
+}
+function setGate(g, state) { g.dataset.state = "idle"; void g.offsetWidth; g.dataset.state = state; }
+const miniGate = makeGate(true); $("mini-gate").append(miniGate);
+function gateStateFor(result) {
+  if (result.decision === "APPROVE" && result.action_executed === true) return "open";
+  if (result.decision === "HOLD_FOR_REVIEW") return "hold";
+  return "shut";
+}
+function setMini(state, text) { setGate(miniGate, state); $("mini-state").textContent = text; }
+
+// ---------- citation markers (lexical, only to show what is being checked; verdicts come from the gate) ----------
 const LEAD_WORDS = new Set(["Under", "In", "As", "See", "Per", "Following", "And", "But", "Also", "Cf.", "Compare", "Accord", "Citing", "The", "Moreover", "However"]);
 function findCases(text) {
   const out = [];
@@ -286,286 +661,290 @@ function findCases(text) {
   const re = new RegExp(`(${party})\\s+v\\.\\s+(${party})`, "g");
   let m;
   while ((m = re.exec(text))) {
-    let start = m.index, full = m[0];
-    const words = m[1].split(/\s+/);
-    while (words.length > 1 && LEAD_WORDS.has(words[0])) { const w = words.shift(); start += w.length; full = full.slice(w.length); const ws = full.match(/^\s+/); if (ws) { start += ws[0].length; full = full.slice(ws[0].length); } }
-    if (/\.$/.test(full) && !/\b(Co|Inc|Corp|Ltd|Bros|Ry|R\.R|Dept|Ass'n)\.$/.test(full)) full = full.slice(0, -1);   // sentence-ending period
-    out.push({ start, end: start + full.length, name: full, short: words.join(" ") });
+    const words = m[0].split(/\s+/);
+    while (words.length > 3 && LEAD_WORDS.has(words[0])) words.shift();
+    out.push(words.join(" ").replace(/[.,]$/, ""));
   }
-  const shortRe = /\b([A-Z][a-z]{2,}),\s+\d+\s+(?:U\.S\.|S\. ?Ct\.|F\.(?:2d|3d|4th)?|F\. Supp\.)/g;
-  while ((m = shortRe.exec(text))) {
-    if (out.some((c) => m.index >= c.start && m.index < c.end) || LEAD_WORDS.has(m[1])) continue;
-    out.push({ start: m.index, end: m.index + m[1].length, name: m[1], short: m[1] });
+  return [...new Set(out)].slice(0, 8);
+}
+function showChips(text) {
+  $("chips").replaceChildren(...findCases(text).map((n, i) => el("span", { class: "chip", style: `animation-delay:${i * 140}ms` }, el("b", {}, "CHECKING"), el("span", {}, n))));
+}
+function colorChips(auths) {
+  for (const chip of $("chips").children) {
+    const name = chip.lastChild.textContent;
+    const a = auths.find((x) => norm(name).includes(norm(x.name)) || norm(x.name).includes(norm(name)) || norm(name).includes(norm(x.written)));
+    chip.firstChild.textContent = a ? STATUS_TEXT[a.status] : "NOT IN EVIDENCE";
+    chip.style.borderColor = chip.firstChild.style.color = a ? `var(--${a.tone})` : "var(--gray)";
   }
-  return out.sort((a, b) => a.start - b.start);
 }
 
-// Map a case to a verdict using the gate's evidence. Prefers a structured `cases` field if the wrapper sends one:
-// [{case, verdict: "verified"|"unknown"|"fabricated"|"wrong", detail}]. Otherwise reads the evidence wording.
-// Preferred: the wrapper starts each line with a tag, e.g. "FABRICATED: <case name> ...", "VERIFIED: <case name> ...".
-const TAGS = [[/^\s*\[?verified\]?\s*:/i, "verified"], [/^\s*\[?unknown\]?\s*:/i, "unknown"], [/^\s*\[?fabricated\]?\s*:/i, "fabricated"], [/^\s*\[?wrong[ _-]?detail\]?\s*:/i, "wrong"]];
-function classifyLine(line) {
-  for (const [re, kind] of TAGS) if (re.test(line)) return kind;
-  const l = line.toLowerCase();
-  if (/advocacy|overconfiden|one-sided|emotional/.test(l)) return null;                 // about tone, not about a case
-  if (/on neither|neither the trusted|unverified case/.test(l)) return "unknown";   // "...nor the fabricated list" is not a fabrication
-  if (/fabricat|does not exist|did not exist|fake|non-?existent/.test(l)) return "fabricated";
-  if (/unknown|unverified|not verified|could not be verified|cannot be verified|not on (either|the|any)|neither list|not (in|on) the trusted|could not verify|cannot verify|not found/.test(l)) return "unknown";
-  if (/misstat|wrong|incorrect|mismatch|match|should be|actually|not what|differs|year|cite|citation|reporter|holding|says|expected| vs\.? /.test(l)) return "wrong";
-  // Green only on an unambiguous positive line: never when it carries negation or anything that reads like a mismatch.
-  if (/\b(verified|confirmed)\b/.test(l) && !/\bnot\b|n't|\bno\b|\bnever\b/.test(l)) return "verified";
-  return null;
+// ---------- rendering the decision ----------
+function ring(dec) {
+  const color = dec === "APPROVE" ? "var(--ok)" : dec === "HOLD_FOR_REVIEW" ? "var(--hold)" : dec === "BLOCK" ? "var(--bad)" : "var(--gray)";
+  const glyph = dec === "APPROVE" ? "M36 53 l10 10 l22 -24" : dec === "HOLD_FOR_REVIEW" ? "M44 38 v28 M60 38 v28" : "M39 39 l26 26 M65 39 l-26 26";
+  return svg("svg", { class: "ring", viewBox: "0 0 104 104", "aria-hidden": "true" },
+    svg("circle", { class: "track", cx: 52, cy: 52, r: 46, fill: "none", "stroke-width": 5 }),
+    svg("circle", { class: "arc", cx: 52, cy: 52, r: 46, fill: "none", stroke: color, "stroke-width": 5 }),
+    svg("path", { class: "glyph", d: glyph, fill: "none", stroke: color, "stroke-width": 7 }));
 }
-// Is an evidence line a concern? The wrapper prefixes concerns with the level it raised (BLOCK: / HOLD_FOR_REVIEW:)
-// and positive or informational lines with "Verified:", "Ezio signals:", "Ezio claim supported", "Not held:".
-function isConcern(line) {
-  if (/^\s*(BLOCK|HOLD_FOR_REVIEW)\s*:/.test(line)) return true;
-  if (/^\s*(APPROVE\s*:|Verified\s*:|Ezio signals\s*:|Ezio claim supported|Not held\s*:)/i.test(line)) return false;
-  return classifyLine(line) !== "verified";
-}
-function caseVerdicts(result, memo) {
-  const cases = findCases(memo);
-  const evidence = evidenceOf(result);
-  const structured = Array.isArray(result.cases) ? result.cases : [];
-  const norm = (s) => s.toLowerCase().replace(/\s+/g, " ").trim();
-  for (const c of cases) {
-    const keys = [norm(c.name), norm(c.short)].filter((k) => k.length > 2);
-    const hit = structured.find((s) => s && typeof s.case === "string" && keys.some((k) => norm(s.case).includes(k) || k.includes(norm(s.case))));
-    if (hit && CASE_VERDICT_TEXT[hit.verdict]) { c.verdict = hit.verdict; c.detail = hit.detail || ""; continue; }
-    // Match on the gate's own words only: a quoted 'Memo text: "..."' tail names every case in the sentence.
-    const lines = evidence.filter((e) => keys.some((k) => norm(e.replace(/\s*Memo text:[\s\S]*$/, "")).includes(k)));
-    const kinds = lines.map(classifyLine).filter(Boolean);
-    const order = ["fabricated", "wrong", "unknown", "verified"];
-    c.verdict = order.find((k) => kinds.includes(k)) || "unchecked";
-    c.detail = lines.join(" · ");
-  }
-  return cases;
+function routeBadge(result) {
+  if (result.action_executed === true) return el("div", { class: "route sent" }, "✓ FORWARDED TO PARTNER");
+  if (result.decision === "HOLD_FOR_REVIEW") return el("div", { class: "route wait" }, "‖ NOT FORWARDED — HUMAN REVIEW REQUIRED");
+  if (result.decision === "BLOCK") return el("div", { class: "route not" }, "✕ NOT FORWARDED");
+  return el("div", { class: "route unk" }, "? APPROVED, BUT FORWARDING NOT CONFIRMED");
 }
 
-// The exact figures and phrases the gate objected to, quoted in its evidence ("Expected 1803, found 1813",
-// 'Advocacy language "slam dunk"', 'the memo says "without exception"'). Read from the evidence; never computed here.
-function evidenceFlags(result) {
-  const flags = [];
-  for (const line of evidenceOf(result).filter(isConcern)) {
-    const kind = /^\s*BLOCK\s*:/.test(line) ? "bad" : "hold";
-    const gate = line.replace(/\s*Memo text:[\s\S]*$/, "");
-    const q = (re) => { const m = gate.match(re); return m ? m[1] : null; };
-    const expected = q(/[Ee]xpected\s+"?([^",]+?)"?(?:,|\s+found)/);
-    const found = q(/found\s+"([^"]+)"/) || q(/found\s+(\d{3,4})\b/);
-    if (found) flags.push({ text: found.replace(/^\(|\)$/g, ""), kind, label: expected ? `wrong: should be ${expected}` : "wrong figure" });
-    const adv = q(/[Aa]dvocacy language\s+"([^"]+)"/);
-    if (adv) flags.push({ text: adv, kind, label: "advocacy" });
-    const says = q(/the memo (?:says|states the standard as)\s+"([^"]+)"/);
-    if (says) flags.push({ text: says, kind, label: "misstates holding" });
-    const cite = q(/[Cc]itation\s+"([^"]+)"\s+is not on the trusted list/);
-    if (cite) flags.push({ text: cite, kind, label: "unverified cite" });
+function ezioCard(ez, result) {
+  const avail = ez.error ? ["Unavailable", "bad"] : ez.accStatus === "unavailable" ? ["Degraded", "bad"] : ["Online", "ok"];
+  const head = el("div", { class: "head" }, el("div", {}, el("div", { class: "kicker" }, "Layer A · external AI checker"), el("h2", {}, "Ezio trust score")),
+    el("span", { class: "pill" }, el("span", { class: "dot " + avail[1] }), avail[0]));
+  if (ez.error) {
+    return el("div", { class: "card layer rv", style: "--d:0ms" }, head,
+      el("div", { class: "score" }, el("span", { class: "num", style: "color:var(--gray)" }, "—"), el("span", { class: "tier t-NA" }, "NO SCORE")),
+      el("div", { class: "note" }, `Ezio could not score this memo (${ez.error}). The gate applied its failure policy instead of trusting a missing score: ${LABELS[result.decision]}. Independent citation checks still ran.`));
   }
-  return flags;
+  const accText = { scored: `Fact-check: ${fmt(ez.verified)} of ${fmt(ez.total)} claims verified, ${fmt(ez.contradicted)} contradicted`, not_scored: "Fact-check not scored — Ezio verified no claim and checked no citation.", unavailable: "Fact-check unavailable — no claim was verified." }[ez.accStatus] || `Fact-check: ${fmt(ez.accStatus)}`;
+  const bar = (k, v, low) => el("div", { class: "bar" + (typeof v === "number" && v < low ? " low" : "") }, el("span", {}, k), el("span", { class: "tr" }, el("i", { style: `width:${Math.max(0, Math.min(100, Number(v) || 0))}%` })), el("b", {}, fmt(v)));
+  return el("div", { class: "card layer rv", style: "--d:0ms" }, head,
+    el("div", { class: "score" }, el("span", { class: "num t-" + (ez.tier || "NA") }, fmt(ez.score)), el("span", { class: "tier t-" + (ez.tier || "NA") }, ez.tier || "?"), el("span", { class: "hint" }, ez.label || "")),
+    ez.summary ? el("div", { style: "font-size:14px" }, ez.summary) : null,
+    el("div", { class: "note" }, accText),
+    el("div", { class: "bars" }, bar("Tone", ez.tone, 70), bar("Bias", ez.bias, 70), bar("Agreement", ez.agreement, 60)),
+    ez.claims.length ? el("ul", { class: "plain" }, ez.claims.map((c) => el("li", {}, el("b", {}, `[${c.verdict}] `), c.text || ""))) : null);
 }
 
-// Locate an Ezio claim in the memo: exact first, then the longest leading run of its words (claims are paraphrased).
-function locateClaim(memo, claimText) {
-  const low = memo.toLowerCase();
-  const words = claimText.replace(/[.\s]+$/, "").split(/\s+/);
-  for (let n = words.length; n >= Math.min(5, words.length); n--) {
-    const probe = words.slice(0, n).join(" ").toLowerCase();
-    const i = low.indexOf(probe);
-    if (i >= 0) return { start: i, end: i + probe.length };
-  }
-  return null;
+function gateCard(result, auths) {
+  const checks = independentChecks(result, auths);
+  const symOf = { pass: "✓", fail: "✕", review: "?", na: "–" }, txt = { pass: "PASS", fail: "FAIL", review: "REVIEW", na: "N/A" };
+  const fabs = auths.filter((a) => a.status === "FABRICATED");
+  return el("div", { class: "card layer rv", style: "--d:150ms" },
+    el("div", { class: "head" }, el("div", {}, el("div", { class: "kicker" }, "Layer B · independent verification"), el("h2", {}, "Approval Gate")),
+      el("span", { class: "pill" }, el("span", { class: "dot ok" }), hasStructured(result) ? `${auths.length} authorit${auths.length === 1 ? "y" : "ies"} checked` : "Findings")),
+    fabs.length ? el("div", { class: "fabhead" }, el("div", { class: "t" }, "✕ FABRICATED AUTHORITY DETECTED"), el("div", { class: "n" }, fabs.map((a) => a.name).join("; ")),
+      fabs[0].fab ? el("div", { class: "hint" }, fabs[0].fab.note) : null) : null,
+    hasStructured(result) ? el("div", { class: "checks" }, checks.map((c) => el("div", { class: "chk" },
+      el("span", { class: "sym s-" + c.st, "aria-hidden": "true" }, symOf[c.st]), el("div", {}, c.name, el("small", {}, c.detail)), el("span", { class: "stxt c-" + c.st }, txt[c.st]))))
+      : el("ul", { class: "plain" }, (result.evidence || []).map((e) => el("li", {}, String(e)))),
+    el("div", { class: "hint" }, "Compared with the firm's trusted_citations.json and known_fabricated.json."));
 }
 
-// ---------- rendering ----------
-function renderMemo(memo, cases, claims, flags = []) {
-  const caseAt = new Array(memo.length).fill(null), claimAt = new Array(memo.length).fill(null), flagAt = new Array(memo.length).fill(null);
-  const caseEnds = new Map(), claimEnds = new Map(), flagEnds = new Map(), unplaced = [];
-  const low = memo.toLowerCase();
-  for (const f of flags) {
-    const at = f.text ? low.indexOf(f.text.toLowerCase()) : -1;
-    if (at < 0 || flagAt[at]) continue;
-    for (let i = at; i < at + f.text.length; i++) flagAt[i] = f;
-    flagEnds.set(at + f.text.length, f);
+function evidenceCards(auths) {
+  if (!auths.length) return el("p", { class: "empty" }, "No case citations found in this memorandum, so no authority needed verification.");
+  const grid = el("div", { class: "ev-grid" });
+  auths.forEach((a, i) => {
+    const t = a.trusted;
+    const more = el("div", { class: "more" }, "Details ›");
+    const line = el("div", { class: "ln" }, a.issues.length ? a.issues.map((x) => x.message).join(" ") : a.verified.map((v) => v.note).join(" "));
+    const card = el("div", { class: `ev k-${a.tone} rv`, style: `--d:${Math.min(900 + i * 70, 1300)}ms`, role: "button", tabindex: "0", "aria-expanded": "false" },
+      el("span", { class: "stat" }, el("span", { class: `sym s-${a.tone === "ok" ? "pass" : a.tone === "hold" ? "review" : "fail"}`, "aria-hidden": "true" }, a.status === "VERIFIED" ? "✓" : a.status === "UNKNOWN" ? "?" : "✕"), STATUS_TEXT[a.status]),
+      el("div", { class: "nm" }, a.name),
+      el("div", { class: "ct" }, t ? `${t.citation} (${t.year}) · trusted record` : a.fab ? "On the firm's fabricated-citation list" : a.status === "UNKNOWN" ? "Not on the trusted or fabricated list" : ""),
+      line, more);
+    const detail = authorityDetail(a);
+    detail.hidden = true;
+    card.append(detail);
+    const toggle = () => { const open = card.getAttribute("aria-expanded") !== "true"; card.setAttribute("aria-expanded", String(open)); detail.hidden = !open; line.hidden = open; more.textContent = open ? "Close ‹" : "Details ›"; };
+    card.onclick = (e) => { if (e.target.closest(".det")) return; toggle(); };
+    card.onkeydown = (e) => { if ((e.key === "Enter" || e.key === " ") && e.target === card) { e.preventDefault(); toggle(); } };
+    grid.append(card);
+  });
+  return grid;
+}
+function authorityDetail(a) {
+  const rows = [];
+  const add = (k, ...v) => rows.push(el("dt", {}, k), el("dd", {}, ...v));
+  add("Status", STATUS_TEXT[a.status]);
+  if (a.written && a.written !== a.name) add("Written in memo", a.written);
+  for (const i of a.issues) {
+    const ef = parseExpected(i.message);
+    if (ef) add(kindLabel[i.kind] || "Detail", el("span", { class: "fv" }, el("span", { class: "hint" }, "Submitted"), el("span", { class: "bad" }, ef.found), el("span", { class: "hint" }, "Expected"), el("span", { class: "ok" }, ef.expected)));
+    add("Gate finding", el("span", { class: "lvl " + i.level }, LABELS[i.level] || i.level), " ", i.message);
+    if (i.quote) add("Memo text", el("div", { class: "quote" }, i.quote));
+    if (i.list_entry) add("Compared with", i.list_entry);
   }
-  for (const c of cases) { for (let i = c.start; i < c.end; i++) caseAt[i] = c; caseEnds.set(c.end, c); }
-  for (const cl of claims) {
-    const v = ["supported", "contradicted"].includes(cl.verdict) ? cl.verdict : "unverified";
-    const pos = typeof cl.text === "string" ? locateClaim(memo, cl.text) : null;
-    if (!pos) { unplaced.push(cl); continue; }
-    for (let i = pos.start; i < pos.end; i++) claimAt[i] = v;
-    claimEnds.set(pos.end, v);
+  if (a.fab) add("Why it is fabricated", a.fab.note);
+  if (a.trusted) { add("Trusted case", a.trusted.case); add("Reporter citation", a.trusted.citation); add("Decision year", a.trusted.year); add("Trusted holding", el("span", { style: "font-family:var(--serif)" }, a.trusted.holding)); }
+  for (const v of a.verified) add("Verified", v.note);
+  return el("dl", { class: "det" }, rows);
+}
+
+// Highlight cited authorities and the exact figures/phrases the gate objected to, read from its own findings.
+function annotatedMemo(memo, auths, result, ez) {
+  const marks = [];
+  const mark = (needle, tone, tag) => {
+    if (!needle || needle.length < 3) return false;
+    const low = memo.toLowerCase(), n = needle.toLowerCase();
+    let i = low.indexOf(n), hit = false;
+    while (i >= 0) { if (!marks.some((m) => i < m.e && i + n.length > m.s)) { marks.push({ s: i, e: i + n.length, tone, tag }); hit = true; } i = low.indexOf(n, i + n.length); }
+    return hit;
+  };
+  for (const f of findingsOf(result)) {
+    const tone = f.level === "BLOCK" ? "bad" : "hold";
+    const ef = parseExpected(f.message);
+    if (ef) mark(ef.found, tone, `WRONG: SHOULD BE ${ef.expected}`);
+    const adv = /[Aa]dvocacy language\s+"([^"]+)"/.exec(f.message || ""); if (adv) mark(adv[1], "hold", "OVERCONFIDENT");
+    const says = /the memo (?:says|states the standard as)\s+"([^"]+)"/.exec(f.message || ""); if (says) mark(says[1], tone, "MISSTATES HOLDING");
+    const cite = /[Cc]itation\s+"([^"]+)"\s+is not on the trusted list/.exec(f.message || ""); if (cite) mark(cite[1], "hold", "UNVERIFIED CITE");
   }
-  const box = el("div", { class: "memo-view" });
+  for (const a of auths) mark(a.written, a.tone, STATUS_TEXT[a.status]) || mark(a.name, a.tone, STATUS_TEXT[a.status]) || mark(a.name.split(" v.")[0], a.tone, STATUS_TEXT[a.status]);
+  for (const c of ez.claims) if (c.verdict === "contradicted" && c.text) mark(c.text.replace(/[.\s]+$/, ""), "bad", "EZIO: CONTRADICTED");
+  marks.sort((a, b) => a.s - b.s);
+  const box = el("div", { class: "memo-view", tabindex: "0", "aria-label": "Memorandum with cited authorities marked" });
   let i = 0;
-  while (i < memo.length) {
-    let j = i + 1;
-    while (j < memo.length && caseAt[j] === caseAt[i] && claimAt[j] === claimAt[i] && flagAt[j] === flagAt[i] && !caseEnds.has(j) && !claimEnds.has(j) && !flagEnds.has(j)) j++;
-    const c = caseAt[i], v = claimAt[i], f = flagAt[i];
-    let node = el("span", { class: [c ? "case " + c.verdict : "", v ? "claim " + v : "", f ? "flag " + f.kind : ""].join(" ").trim() || null, title: f ? `Gate: ${f.label}` : c ? `Case: ${CASE_VERDICT_TEXT[c.verdict]}` : null }, memo.slice(i, j));
-    box.append(node);
-    if (f && flagEnds.get(j) === f) box.append(el("span", { class: "tag flag " + f.kind }, `[${f.label}]`));
-    if (caseEnds.has(j) && caseEnds.get(j) === c) box.append(el("span", { class: "tag case " + c.verdict }, `[${CASE_VERDICT_TEXT[c.verdict]}]`));
-    if (claimEnds.has(j) && v && claimAt[j] !== v) box.append(el("span", { class: "tag", style: "color:" + (v === "supported" ? "var(--ok)" : v === "contradicted" ? "var(--bad)" : "var(--hold)") }, `[Ezio: ${v}]`));
-    i = j;
-  }
-  return { box, unplaced };
+  for (const m of marks) { box.append(memo.slice(i, m.s)); box.append(el("span", { class: "hl " + m.tone }, memo.slice(m.s, m.e), el("span", { class: "tg" }, `[${m.tag}]`))); i = m.e; }
+  box.append(memo.slice(i));
+  return box;
 }
 
-function legend() {
-  return el("div", { class: "legend" },
-    el("span", { class: "case verified" }, "Case [verified]"),
-    el("span", { class: "case unknown" }, "Case [unknown]"),
-    el("span", { class: "case fabricated" }, "Case [fabricated]"),
-    el("span", { class: "case wrong" }, "Case [wrong detail]"),
-    el("span", { class: "case unchecked" }, "Case [not in evidence]"),
-    el("span", { class: "claim supported" }, "Ezio claim supported"),
-    el("span", { class: "claim contradicted" }, "Ezio claim contradicted"),
-    el("span", { class: "claim unverified" }, "Ezio claim unverified"),
-    el("span", { class: "flag bad" }, "Figure/phrase the gate objected to [why]"));
+function drivers(result) {
+  const sot = new Set(findingsOf(result).map((f) => f.message));
+  const pol = policyOf(result);
+  if (!pol.length) return el("p", {}, result.reason);
+  return el("ul", { class: "drivers" }, pol.map(([lvl, text]) => el("li", {}, el("span", { class: "lvl " + lvl }, LABELS[lvl] || lvl), el("span", {}, String(text)),
+    el("span", { class: "src" }, sot.has(text) ? "Independent check" : /Ezio|accuracy|tone|bias|agreement|tier/i.test(text) ? "Ezio signal + policy" : "Gate policy"))));
 }
 
-function versusPanel(result, s, cases) {
-  const evidence = evidenceOf(result).filter(isConcern);   // positive and informational lines aren't concerns
-  const flagged = cases.filter((c) => ["fabricated", "wrong", "unknown"].includes(c.verdict));
-  const ezioOk = s.tier === "GREEN";
-  const ourOk = result.decision === "APPROVE";
-  // A display flag only: Ezio's tier and the gate's call point different ways. The gate's decision stands either way.
-  const disagree = !s.error && s.tier && (ezioOk !== ourOk || (ezioOk && (evidence.length > 0 || flagged.length > 0)));
-  const ezCol = el("div", { class: "col" },
-    el("h3", { style: "margin-top:0" }, "Ezio score"),
-    s.error ? el("div", { class: "big" }, "No score (Ezio down)") :
-      el("div", { class: "big" }, `${s.tier || "?"} · ${fmt(s.score)}`),
-    s.summary ? el("div", {}, s.summary) : null,
-    s.accStatus ? el("div", { class: "hint" }, `Accuracy ${s.accStatus}${s.accStatus === "scored" ? `: ${fmt(s.verified)} of ${fmt(s.total)} claims verified, ${fmt(s.contradicted)} contradicted` : ""}`) : null);
-  const ourCol = el("div", { class: "col" },
-    el("h3", { style: "margin-top:0" }, "Our check (firm citation lists + policy)"),
-    el("div", { class: "big" }, LABELS[result.decision] || result.decision),
-    evidence.length ? el("div", {}, `${evidence.length} concern${evidence.length > 1 ? "s" : ""} in the evidence${flagged.length ? `; ${flagged.length} case${flagged.length > 1 ? "s" : ""} flagged` : ""}.`)
-      : el("div", {}, "No source-of-truth findings returned."),
-    el("div", { class: "hint" }, cases.length ? `Cases in memo: ${cases.map((c) => `${c.name} (${CASE_VERDICT_TEXT[c.verdict]})`).join("; ")}` : "No case names found in the memo."));
-  const line = disagree
-    ? el("div", { class: "verdict-line", style: "color:var(--bad)" }, `⚠ DISAGREE: Ezio says ${s.tier}, the gate says ${LABELS[result.decision]}. A clean score is not proof the citations were checked. The gate's decision stands.`)
-    : el("div", { class: "verdict-line", style: "color:var(--muted)" }, s.error ? "Only our check is available; Ezio returned no score." : "= Agree: Ezio's tier and the gate's decision point the same way.");
-  return el("div", { class: "versus" + (disagree ? " disagree" : "") }, line, ezCol, ourCol);
-}
-
-function signalsGrid(s) {
-  const sig = (k, v, low) => el("div", { class: "sig" + (low ? " low" : "") }, el("div", { class: "k" }, k), el("div", { class: "v" }, fmt(v)));
-  return el("div", { class: "signals" },
-    sig("Tier", s.tier), sig("Score", s.score), sig("Accuracy", s.accStatus),
-    sig("Claims verified", s.total != null ? `${fmt(s.verified)}/${fmt(s.total)}` : null),
-    sig("Contradicted", s.contradicted, s.contradicted > 0),
-    sig("Bias", s.bias, s.bias < 80), sig("Tone", s.tone, s.tone < 80), sig("Agreement", s.agreement, s.agreement < 80));
-}
-
-function ezioBanners(result, s) {
+function ezioBanners(result, ez) {
   const out = [];
-  if (s.error) out.push(banner("error", "Fever mode: Ezio unavailable, holding for review.", `The gate could not get a trust score (${s.error}). It fell back to its failure policy: ${LABELS[result.decision] || result.decision}. Nothing was fact-checked by Ezio.`));
-  else if (s.accStatus === "unavailable") out.push(banner("warn", "Fever mode: Ezio's fact-check unavailable, holding for review.", "Tone, bias and agreement were scored, but no claim in this memo was fact-checked by Ezio. Do not read the tier as a check of the facts."));
-  else if (s.accStatus === "not_scored") out.push(banner("info", "Ezio did not fact-check any claims (accuracy not scored).", "A green tier here only means tone and balance looked fine. The firm's citation lists are the only check on the cases."));
+  if (ez.error) out.push(banner("error", "Ezio unavailable. Independent citation checks completed.", `Ezio returned no usable score (${ez.error}). Routing followed the gate's failure policy: ${LABELS[result.decision]}. A missing score is never treated as approval.`));
+  else if (ez.accStatus === "unavailable") out.push(banner("warn", "Ezio is degraded: its fact-check was unavailable.", "Tone, bias and agreement were scored, but Ezio fact-checked no claim. Do not read its tier as a check of the facts."));
   return out;
 }
 
-// The question a reviewer must answer, built from the gate's own evidence (and Ezio's state). It asks; it doesn't decide.
-function reviewQuestions(result, s, cases) {
+// ---------- human review ----------
+function reviewQuestions(result, ez, auths) {
   const qs = [];
-  const seen = new Set();   // "Gideon" and "Gideon v. Wainwright" are one case: ask once
-  cases = cases.filter((c) => !seen.has(c.short) && seen.add(c.short));
-  for (const c of cases.filter((c) => c.verdict === "unknown"))
-    qs.push(`Does “${c.name}” exist, and does it actually hold what this memo says? Pull it from Westlaw/Lexis and confirm the reporter cite and year before proceeding.`);
-  for (const c of cases.filter((c) => c.verdict === "wrong"))
-    qs.push(`The gate says a detail of “${c.name}” is misstated (${c.detail || "holding, cite, or year"}). Has the memo been corrected?`);
-  for (const e of evidenceOf(result).filter(isConcern)) {
-    const l = e.toLowerCase();
-    if (/advoca|overconfiden|one-sided|emotional|tone|slam dunk|clearly|absolutely/.test(l)) qs.push(`Is this language acceptable in an objective research memo, or must it be rewritten? Gate: “${e}”`);
-    else if (!cases.some((c) => e.toLowerCase().includes(c.name.toLowerCase())) && !qs.some((q) => q.includes(e))) qs.push(`Can you confirm or resolve this before it goes to the partner: “${e}”?`);
-  }
-  if (s.error) qs.push("Ezio could not score this memo. Has someone manually checked every case and factual claim?");
-  else if (s.accStatus === "unavailable") qs.push("Ezio's fact-check was unavailable. Has someone verified the factual claims by hand?");
-  if (s.tone != null && s.tone < 80 && !qs.some((q) => q.includes("language"))) qs.push(`Ezio scored tone ${fmt(s.tone)}. Is the memo's language objective enough to send to the partner?`);
-  if (!qs.length) qs.push(`The gate held this memo: “${result.reason}”. Is that concern resolved?`);
+  for (const a of auths.filter((a) => a.status === "UNKNOWN")) qs.push(`Does “${a.name}” exist, and does it hold what this memo says? Pull it from Westlaw/Lexis and confirm the reporter citation and year.`);
+  for (const a of auths.filter((a) => a.status !== "UNKNOWN" && a.status !== "VERIFIED" && a.level === "HOLD_FOR_REVIEW")) qs.push(`Confirm “${a.name}”: ${a.issues.map((i) => i.message).join(" ")}`);
+  for (const f of findingsOf(result).filter((f) => f.kind === "advocacy")) qs.push(`${f.message} Is it acceptable in an objective research memo, or must it be rewritten?`);
+  const sot = new Set(findingsOf(result).map((f) => f.message));
+  for (const [lvl, text] of policyOf(result)) if (lvl === "HOLD_FOR_REVIEW" && !sot.has(text)) qs.push(`Resolve before this goes to the partner: ${text}.`);
+  if (ez.error) qs.push("Ezio could not score this memo. Has someone manually checked every case and factual claim?");
+  if (!qs.length) qs.push(`The gate held this memo: “${result.reason}” Is that concern resolved?`);
   return [...new Set(qs)];
 }
-
 const sessionReviews = [];
-function reviewBox(text, result, s, cases) {
-  const qs = reviewQuestions(result, s, cases);
-  const reason = el("textarea", { id: "review-reason", rows: "3", placeholder: "Required. E.g. 'Pulled the case from Westlaw: reporter cite and holding are correct' or 'Case not found; returning to associate'." });
+function reviewWorkspace(text, result, ez, auths) {
+  const reason = el("textarea", { id: "review-reason", maxlength: "2000", placeholder: "Required for the audit record. E.g. “Pulled Harlan from Westlaw: 288 F.3d 1104 is correct and the holding matches” or “Case not found; returning to associate.”" });
   const err = el("div", { "aria-live": "assertive" });
   const done = el("div", { "aria-live": "polite" });
-  const radio = (v, t) => el("label", {}, el("input", { type: "radio", name: "review-choice", value: v }), t);
-  const btn = el("button", {}, "Log review");
-  btn.onclick = async () => {
+  const proceed = el("button", { class: "btn okb" }, "Proceed — concern resolved");
+  const reject = el("button", { class: "btn danger" }, "Reject — return to author");
+  const unknown = auths.filter((a) => a.status === "UNKNOWN");
+  async function submit(choice) {
     err.replaceChildren();
-    const choice = (document.querySelector("input[name=review-choice]:checked") || {}).value;
-    if (!choice) return err.append(banner("error", "Pick Proceed or Reject."));
-    if (!reason.value.trim()) return err.append(banner("error", "A reason is required for the audit record."));
-    btn.disabled = true;
+    if (reason.value.trim().length < 8) { reason.focus(); return err.append(banner("error", "A reviewer justification is required.", "Write at least a short sentence; it is stored in the audit record.")); }
+    proceed.disabled = reject.disabled = true;
     try {
       const logged = await postJSON("/review", { input: text, original_decision: result.decision, reviewer_choice: choice, reason: reason.value.trim() });
-      sessionReviews.unshift(logged);
-      renderReviews();
-      done.replaceChildren(el("div", { class: "logged" },
-        `Reviewer decision logged (${choice.toUpperCase()}) at ${logged.time}. The memo was NOT submitted; the gate's decision (${LABELS[result.decision]}) stands. ` +
-        (choice === "proceed" ? "To send it, fix or confirm the issue and resubmit the memo through the gate." : "Return the memo to its author with your reason.")));
+      if (logged.logged !== true) throw new Error("The server did not confirm the review was logged.");
+      sessionReviews.unshift(logged); renderReviews();
+      reason.readOnly = true;
+      done.replaceChildren(el("div", { class: "logged", role: "status" },
+        el("b", {}, `Review recorded: ${String(logged.reviewer_choice).toUpperCase()} · ${logged.time}`),
+        `Justification: “${logged.reason}”. `,
+        el("strong", {}, logged.action_executed === false ? "The memorandum was NOT forwarded" : "Forwarding status not confirmed"),
+        ` — the gate's decision (${LABELS[result.decision]}) stands. ` + (choice === "proceed" ? "To send it, correct or confirm the authority and re-inspect it through the gate." : "Return the memo to its author with your reason."),
+        " It now appears under “Reviewer decisions” in the audit trail."));
     } catch (e) {
-      err.append(banner("error", "Review was not logged.", e.message));
-      btn.disabled = false;
+      err.append(banner("error", "Review was not logged. Nothing changed.", e.message));
+      proceed.disabled = reject.disabled = false;
     }
-  };
-  return el("div", { class: "review" },
-    el("h2", {}, "Reviewer step: answer before anything moves"),
-    el("h3", { style: "margin-top:0" }, "The question you must answer"),
-    qs.map((q) => el("div", { class: "question" }, q)),
-    el("div", { class: "choice", role: "radiogroup", "aria-label": "Reviewer choice" },
-      radio("proceed", "Proceed: concern resolved"), radio("reject", "Reject: send back to author")),
-    el("label", { for: "review-reason" }, "Reason (logged)"), reason,
-    el("div", { class: "row" }, btn),
-    el("p", { class: "hint" }, "Logging a review records your answer in the review log. It does not submit the memo or change the gate's decision."),
-    err, done);
+  }
+  proceed.onclick = () => submit("proceed"); reject.onclick = () => submit("reject");
+  return el("section", { class: "review", id: "review", "aria-labelledby": "h-review" },
+    el("div", { style: "display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center" },
+      el("div", {}, el("div", { class: "kicker" }, "Human review"), el("h2", { id: "h-review" }, "Reviewer decision before anything moves")),
+      el("div", { class: "route wait", style: "margin:0;font-size:14px" }, "Not sent automatically")),
+    el("div", { class: "cols" },
+      el("div", {}, el("h3", { style: "margin-top:0" }, "Original memorandum"), annotatedMemo(text, auths, result, ez),
+        el("h3", {}, "Ezio"), el("div", { class: "note" }, ez.error ? `Unavailable: ${ez.error}` : `${ez.tier} ${fmt(ez.score)} · ${ez.summary || ""}`)),
+      el("div", {},
+        el("h3", { style: "margin-top:0" }, "Why the gate is uncertain"), reviewQuestions(result, ez, auths).map((q) => el("div", { class: "question" }, q)),
+        unknown.length ? [el("h3", {}, "Unverified authorities"), el("ul", { class: "plain" }, unknown.map((a) => el("li", { style: "font-family:var(--serif)" }, a.name, a.issues[0] && a.issues[0].list_entry ? el("span", { class: "hint" }, ` — ${a.issues[0].list_entry}`) : null)))] : null,
+        el("label", { for: "review-reason" }, "Reviewer justification (logged)"), reason,
+        el("div", { style: "display:flex;gap:8px;margin-top:10px;flex-wrap:wrap" }, proceed, reject),
+        el("p", { class: "hint" }, "Your decision is written to review_log.jsonl via POST /review. It does not forward the memo or change the gate's decision."),
+        err, done)));
+}
+
+// ---------- result orchestration ----------
+let revealTimers = [];
+function finishReveal() { const pending = revealTimers; revealTimers = []; pending.forEach((t) => { clearTimeout(t.id); t.fn(); }); $("result").classList.remove("revealing"); $("skip").hidden = true; }
+function later(ms, fn) {
+  if (!MOTION) return fn();
+  const t = { fn };
+  t.id = setTimeout(() => { revealTimers = revealTimers.filter((x) => x !== t); fn(); if (!revealTimers.length) $("skip").hidden = true; }, ms);
+  revealTimers.push(t);
 }
 
 function renderResult(text, result, seconds) {
-  const s = signalsOf(result);
-  const cases = caseVerdicts(result, text);
-  const evidence = evidenceOf(result);
+  finishReveal();
+  const ez = ezioOf(result);
+  const auths = authorities(result);
   const dec = result.decision;
-  const ran = result.action_executed === true;
-  const { box, unplaced } = renderMemo(text, cases, s.claims, evidenceFlags(result));
+  const conflict = disagreement(result, ez, auths);
+  const g = makeGate(false);
+  const st = gateStateFor(result);
+  const seg = st === "open" ? "ok" : st === "hold" ? "wait" : "cut";
+  const nAuth = auths.length;
+  const summary = `Memorandum reviewed. ${nAuth ? `${nAuth} cited authorit${nAuth === 1 ? "y" : "ies"} checked` : "No case citations to check"}${ez.error ? "; Ezio unavailable" : `; Ezio ${ez.tier} ${fmt(ez.score)}`}.`;
+  const verdict = el("div", { class: `card verdict v-${dec} rv`, style: "--d:650ms" },
+    ring(dec),
+    el("div", {},
+      el("div", { class: "kicker" }, "Gate decision"),
+      el("div", { class: "dlabel" }, LABELS[dec]),
+      routeBadge(result),
+      el("div", { class: "vsum" }, el("strong", {}, "Reason: "), result.reason),
+      el("div", { class: "vsum", style: "margin-top:6px" }, CONSEQUENCE[dec]),
+      el("div", { class: "vmeta" }, `${summary} Decided by the gate in ${seconds.toFixed(1)} s.`)),
+    el("div", {}, g, el("div", { class: "gate-legend" }, "AI draft", el("span", { class: "seg ok" }), "Gate", el("span", { class: "seg " + seg }), "Partner")));
   const out = [
-    ...ezioBanners(result, s),
-    el("div", { class: "decision d-" + (LABELS[dec] ? dec : "NONE") },
-      el("div", { class: "icon", "aria-hidden": "true" }, ICONS[dec] || "?"),
-      el("div", {}, el("div", { class: "sub" }, "Gate decision"), el("div", { class: "label" }, LABELS[dec] || String(dec)),
-        el("div", { class: "sub" }, `Checked in ${seconds.toFixed(1)} s`))),
-    el("div", { class: "action " + (ran ? "ran" : "not") }, ran ? "✓ Submitted to partner" : "✕ NOT submitted to partner"),
-    el("p", { class: "meaning" }, el("strong", {}, "What this means: "), MEANING[dec] || ""),
-    el("p", { class: "reason" }, el("strong", {}, "Reason: "), result.reason || "(no reason given)"),
-    dec === "HOLD_FOR_REVIEW" ? reviewBox(text, result, s, cases) : null,
-    el("h3", {}, "Ezio score vs. our check"), versusPanel(result, s, cases),
-    el("h3", {}, "Memo, with every case and claim marked"), box, legend(),
-    unplaced.length ? el("div", { class: "hint" }, "Ezio claims not found word for word in the memo: ",
-      el("ul", { class: "evidence" }, unplaced.map((c) => el("li", {}, `[${c.verdict}] ${c.text}`)))) : null,
-    cases.length ? el("table", {}, el("thead", {}, el("tr", {}, el("th", {}, "Case in memo"), el("th", {}, "Verdict"), el("th", {}, "From the gate's evidence"))),
-      el("tbody", {}, cases.map((c) => el("tr", {}, el("td", {}, c.name), el("td", {}, el("span", { class: "case " + c.verdict }, CASE_VERDICT_TEXT[c.verdict])),
-        el("td", {}, c.detail || (c.verdict === "unchecked" ? "The gate's evidence does not mention this case." : "")))))) : null,
-    el("h3", {}, "Evidence from the gate"),
-    evidence.length ? el("ul", { class: "evidence" }, evidence.map((e) => el("li", {}, e))) : el("p", { class: "empty" }, "The gate returned no evidence lines for this memo."),
-    s.claims.length ? [el("h3", {}, "Ezio fact-check"), el("ul", { class: "evidence" }, s.claims.map((c) =>
-      el("li", {}, el("strong", {}, `[${c.verdict}] `), c.text, c.source && c.source.publisher ? el("span", { class: "hint" }, ` (source: ${c.source.publisher})`) : null)))] : null,
-    el("h3", {}, "Ezio signals"), signalsGrid(s),
-    el("details", {}, el("summary", {}, "Raw gate response (JSON)"), el("pre", {}, JSON.stringify(result, null, 2))),
+    ...ezioBanners(result, ez),
+    verdict,
+    conflict ? el("div", { class: `conflict ${conflict.tone} rv`, style: "--d:450ms", role: "note" },
+      el("div", { class: "big" }, conflict.head), el("div", { class: "sub" }, conflict.sub),
+      el("div", { class: "moral" }, "High AI confidence does not equal verified legal authority.")) : null,
+    el("div", { class: "tri" }, ezioCard(ez, result),
+      el("div", { class: "link rv " + (conflict ? conflict.tone : dec === "APPROVE" ? "green" : dec === "BLOCK" ? "red" : "amber"), style: "--d:300ms" }, el("span", { class: "x", "aria-hidden": "true" }, conflict ? "≠" : "=")),
+      gateCard(result, auths)),
+    dec === "HOLD_FOR_REVIEW" ? reviewWorkspace(text, result, ez, auths) : null,
+    el("h3", {}, "What drove this decision"), el("div", { class: "rv", style: "--d:800ms" }, drivers(result)),
+    el("h3", {}, "Cited authorities"), evidenceCards(auths),
+    el("h3", {}, "Memorandum, with every cited authority marked"), annotatedMemo(text, auths, result, ez),
+    el("div", { class: "legend" }, el("span", { class: "hl ok" }, "✓ verified"), el("span", { class: "hl hold" }, "? unknown / needs review"), el("span", { class: "hl bad" }, "✕ fabricated / wrong detail")),
+    el("details", { class: "raw" }, el("summary", {}, "All evidence lines from the gate"), el("ul", { class: "plain" }, (result.evidence || []).map((e) => el("li", {}, String(e))))),
+    el("details", { class: "raw" }, el("summary", {}, "Raw gate response (JSON)"), el("pre", {}, JSON.stringify(result, null, 2))),
   ];
-  $("result").replaceChildren(...out.flat().filter(Boolean));
+  const root = $("result");
+  if (MOTION) root.classList.add("revealing");
+  root.replaceChildren(...out.flat().filter(Boolean));
+  $("stage").dataset.d = dec;
+  colorChips(auths);
+  $("f2").classList.add("on"); $("f3").classList.toggle("on", result.action_executed === true);
+  const miniText = st === "open" ? "Open · forwarded" : st === "hold" ? "Held · awaiting review" : "Shut · not forwarded";
+  if (MOTION) $("skip").hidden = false;
+  later(650, () => { setGate(g, st); setMini(st, miniText); });
+  later(1500, () => root.classList.remove("revealing"));
+  root.scrollIntoView({ behavior: MOTION ? "smooth" : "auto", block: "start" });
 }
 
 function renderFailure(err) {
-  const titles = { timeout: "The gate did not answer in time.", network: "The gate is unreachable.", bad_request: "The gate rejected this input.", server: "The gate failed while deciding." };
+  finishReveal();
+  const titles = { timeout: "The gate did not answer in time.", network: "The gate is unreachable.", bad_request: "The gate rejected this input.", server: "The gate failed while deciding.", shape: "The gate returned an unexpected response." };
+  const retry = el("button", { class: "btn small", style: "margin-top:8px" }, "Retry");
+  retry.onclick = inspect;
+  const g = makeGate(false);
   $("result").replaceChildren(
-    banner("error", titles[err.kind] || "Request failed.", err.message),
-    el("div", { class: "decision d-NONE" }, el("div", { class: "icon", "aria-hidden": "true" }, "!"),
-      el("div", {}, el("div", { class: "sub" }, "Gate decision"), el("div", { class: "label" }, "NO DECISION"))),
-    el("div", { class: "action not" }, "✕ NOT submitted to partner"),
-    el("p", { class: "meaning" }, "Without a decision from the gate nothing is sent. Fix the input or restart the gate and try again."));
+    banner("error", titles[err.kind] || "Request failed.", err.message, el("div", {}, retry)),
+    el("div", { class: "card verdict v-NONE" }, ring(null),
+      el("div", {}, el("div", { class: "kicker" }, "Gate decision"), el("div", { class: "dlabel" }, "NO DECISION"),
+        el("div", { class: "route not" }, "✕ NOT FORWARDED"),
+        el("div", { class: "vsum" }, "Without a decision from the gate nothing is sent to the partner. Fix the input or restart the gate, then retry.")), g));
+  setGate(g, "error"); setMini("error", "No decision · not forwarded");
+  $("stage").dataset.d = ""; $("f3").classList.remove("on");
+  $("result").scrollIntoView({ behavior: MOTION ? "smooth" : "auto", block: "start" });
 }
 
 // ---------- single memo flow ----------
@@ -573,99 +952,145 @@ function parseContext() {
   const raw = $("context").value.trim();
   if (!raw) return {};
   let ctx;
-  try { ctx = JSON.parse(raw); } catch (_) { throw new Error("Matter details are not in the expected format. Fix them or leave the box empty."); }
-  if (!ctx || typeof ctx !== "object" || Array.isArray(ctx)) throw new Error("Matter details must look like {\"matter\": \"State v. Doe\"}.");
+  try { ctx = JSON.parse(raw); } catch (_) { throw new Error("Context is not valid JSON. Fix it or leave it empty."); }
+  if (!ctx || typeof ctx !== "object" || Array.isArray(ctx)) throw new Error("Context must be a JSON object, like {\"matter\": \"State v. Doe\"}.");
   return ctx;
 }
-
-function spinner(label) {
-  const t0 = performance.now();
-  const msg = el("div", {}, label);
-  const sub = el("div", { class: "hint" }, "0 s");
-  const node = el("div", { class: "spinner-wrap", role: "status" }, el("div", { class: "spinner", "aria-hidden": "true" }), el("div", {}, msg, sub));
-  const timer = setInterval(() => {
-    const s = (performance.now() - t0) / 1000;
-    sub.textContent = `${Math.floor(s)} s elapsed` + (s > 8 ? ". Ezio is slow; the gate retries for up to ~45 s and gives up by 60 s." : ". Ezio usually answers in 2–6 s.");
-  }, 250);
-  return { node, stop: () => clearInterval(timer), elapsed: () => (performance.now() - t0) / 1000 };
+let busy = false;
+let SAMPLES = [];
+function setBusy(b) {
+  busy = b;
+  for (const id of ["run-selected", "run-all"]) $(id).disabled = b;
+  document.querySelectorAll(".preset").forEach((p) => (p.disabled = b || (p.dataset.id ? !SAMPLES.some((s) => s.id === p.dataset.id) : !SAMPLES.length)));
+  updateCount();
+}
+function updateCount() {
+  const n = $("memo").value.length;
+  $("memo-count").textContent = `${n.toLocaleString()} / 20,000 characters` + (n > MAX_CHARS ? " — too long" : "");
+  $("memo-count").classList.toggle("over", n > MAX_CHARS);
+  $("check").disabled = busy || !$("memo").value.trim() || n > MAX_CHARS;
+  $("check").title = !$("memo").value.trim() ? "Paste a memorandum first" : n > MAX_CHARS ? "The gate accepts at most 20,000 characters" : "";
 }
 
-let busy = false;
-function setBusy(b) { busy = b; for (const id of ["check", "run-selected", "run-all"]) $(id).disabled = b; }
-
-$("check").onclick = async () => {
+async function inspect() {
+  if (busy) return;
   const text = $("memo").value;
   const errBox = $("input-error");
   errBox.replaceChildren();
-  updateCount();
-  if (!text.trim()) return errBox.append(banner("error", "The memo is empty.", "Paste the memo text you want to submit."));
-  if (text.length > MAX_CHARS) return errBox.append(banner("error", `The memo is ${text.length.toLocaleString()} characters.`, `The gate accepts at most ${MAX_CHARS.toLocaleString()}. Split it into sections and check each one.`));
+  if (!text.trim()) return errBox.append(banner("error", "The memorandum is empty.", "Paste the memo text you want to send to the partner."));
+  if (text.length > MAX_CHARS) return errBox.append(banner("error", `The memorandum is ${text.length.toLocaleString()} characters.`, `The gate accepts at most ${MAX_CHARS.toLocaleString()}. Split it into sections and inspect each one.`));
   let context;
-  try { context = parseContext(); } catch (e) { return errBox.append(banner("error", "Context problem.", e.message)); }
+  try { context = parseContext(); } catch (e) { $("ctx-panel").hidden = false; return errBox.append(banner("error", "Matter context problem.", e.message)); }
   setBusy(true);
-  const sp = spinner("Checking the memo: Ezio trust score + firm citation lists…");
-  $("result").replaceChildren(sp.node);
+  finishReveal();
+  const stage = $("stage");
+  stage.classList.add("inspecting"); stage.dataset.d = "";
+  $("f2").classList.add("on"); $("f3").classList.remove("on");
+  showChips(text); setMini("scan", "Inspecting…");
+  const t0 = performance.now();
+  const tick = setInterval(() => {
+    const s = (performance.now() - t0) / 1000;
+    $("inspector-text").textContent = `Verifying cited authorities… ${Math.floor(s)} s` + (s > 8 ? " (Ezio is slow; the gate retries up to ~45 s)" : "");
+  }, 250);
+  $("result").replaceChildren(el("div", { class: "card", role: "status", style: "display:flex;gap:12px;align-items:center" }, el("span", { class: "spin" }),
+    el("div", {}, el("b", {}, "Inspecting the memorandum"), el("div", { class: "hint" }, "Checking each cited authority against the firm's lists and asking Ezio for a trust score. Usually 2–6 s; slow Ezio responses are retried for up to ~45 s."))));
   const ctrl = new AbortController();
   const kill = setTimeout(() => ctrl.abort(), CLIENT_TIMEOUT_MS);
   try {
     const result = await decide(text, context, ctrl.signal);
-    renderResult(text, result, sp.elapsed());
+    const secs = (performance.now() - t0) / 1000;
+    $("inspector-text").textContent = `Decision in ${secs.toFixed(1)} s`;
+    stage.classList.remove("inspecting");
+    renderResult(text, result, secs);
   } catch (e) {
+    stage.classList.remove("inspecting");
+    $("inspector-text").textContent = "No decision";
+    $("chips").replaceChildren();
     renderFailure(e);
   } finally {
-    clearTimeout(kill); sp.stop(); setBusy(false); loadAudit();
+    clearTimeout(kill); clearInterval(tick); setBusy(false); loadAudit(); health();
   }
-};
-$("clear").onclick = () => { $("memo").value = ""; $("context").value = ""; $("input-error").replaceChildren(); updateCount(); };
-function updateCount() {
-  const n = $("memo").value.length;
-  $("memo-count").textContent = `${n.toLocaleString()} / 20,000`;
-  $("memo-count").classList.toggle("over", n > MAX_CHARS);
 }
-$("memo").addEventListener("input", updateCount);
+$("check").onclick = inspect;
+$("memo").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); inspect(); } });
+$("memo").addEventListener("input", () => { updateCount(); $("f1").classList.add("on"); });
+$("clear").onclick = () => { $("memo").value = ""; $("context").value = ""; $("input-error").replaceChildren(); $("chips").replaceChildren(); updateCount(); $("memo").focus(); };
+$("ctx-toggle").onclick = () => { const p = $("ctx-panel"); p.hidden = !p.hidden; $("ctx-toggle").setAttribute("aria-expanded", String(!p.hidden)); };
+$("skip").onclick = finishReveal;
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("skip").hidden) finishReveal(); });
+document.querySelectorAll("[data-go]").forEach((b) => (b.onclick = () => $(b.dataset.go).scrollIntoView({ behavior: MOTION ? "smooth" : "auto" })));
+function setMotion(on) { MOTION = on; $("motion").textContent = on ? "Motion on" : "Motion off"; $("motion").setAttribute("aria-pressed", String(on)); document.body.classList.toggle("nomotion", !on); try { localStorage.setItem("ag-motion", on ? "on" : "off"); } catch (_) {} if (!on) finishReveal(); }
+$("motion").onclick = () => setMotion(!MOTION);
+setMotion(MOTION);
 
-// ---------- samples, side by side ----------
-let SAMPLES = [];
+// ---------- presets and samples ----------
+function loadIntoChamber(sample) {
+  $("memo").value = sample.text;
+  $("context").value = Object.keys(sample.context || {}).length ? JSON.stringify(sample.context) : "";
+  $("input-error").replaceChildren(); $("chips").replaceChildren();
+  updateCount(); $("f1").classList.add("on");
+}
+document.querySelectorAll(".preset[data-id]").forEach((p) => (p.onclick = () => {
+  const s = SAMPLES.find((x) => x.id === p.dataset.id);
+  if (!s) return;
+  loadIntoChamber(s);
+  $("stage").scrollIntoView({ behavior: MOTION ? "smooth" : "auto", block: "start" });
+  $("check").focus({ preventScroll: true });
+}));
+$("run-all-dock").onclick = () => { $("batch").scrollIntoView({ behavior: MOTION ? "smooth" : "auto" }); runSamples(SAMPLES); };
+
+function sentCell(result, err) {
+  if (err) return el("span", { class: "sent unk" }, "UNKNOWN — request failed, not sent");
+  if (result.action_executed === true) return el("span", { class: "sent yes" }, "✓ YES — Sent");
+  if (result.decision === "BLOCK") return el("span", { class: "sent no" }, "✕ NO — Blocked");
+  if (result.decision === "HOLD_FOR_REVIEW") return el("span", { class: "sent wait" }, "‖ NO — Awaiting review");
+  return el("span", { class: "sent unk" }, "? Not confirmed");
+}
+function dchip(dec) { return el("span", { class: "dchip " + (LABELS[dec] ? dec : "ERR") }, `${SYM[dec] || "!"} ${LABELS[dec] || "NO DECISION"}`); }
+function sampleRow(s) {
+  return el("tr", { "data-id": s.id },
+    el("td", {}, el("input", { type: "checkbox", value: s.id, "aria-label": `Select ${s.id}` })),
+    el("td", { class: "nowrap" }, el("code", {}, s.id)),
+    el("td", { class: "memo" }, s.text.length > 110 ? s.text.slice(0, 110) + "…" : s.text),
+    el("td", { class: "nowrap ez" }, el("span", { class: "hint" }, "—")),
+    el("td", { class: "dec" }, el("span", { class: "hint" }, "Not run")),
+    el("td", { class: "snt" }, el("span", { class: "hint" }, "—")),
+    el("td", { class: "why" }, ""),
+    el("td", { class: "act" }, ""));
+}
 async function loadSamples() {
   try {
     SAMPLES = (await getJSON("/api/samples?persona=" + PERSONA)).samples || [];
-    $("sample-list").replaceChildren(...SAMPLES.map((s) => el("label", {},
-      el("input", { type: "checkbox", value: s.id }), el("code", {}, s.id), el("span", {}, s.text.length > 140 ? s.text.slice(0, 140) + "…" : s.text))));
-    if (!SAMPLES.length) $("sample-list").replaceChildren(el("div", { class: "empty", style: "padding:8px" }, "No samples available."));
+    $("sample-rows").replaceChildren(...(SAMPLES.length ? SAMPLES.map(sampleRow) : [el("tr", {}, el("td", { colspan: "8", class: "empty" }, "No practice memos available."))]));
   } catch (e) {
-    $("sample-list").replaceChildren(banner("error", "Could not load samples.", e.message));
+    $("sample-rows").replaceChildren(el("tr", {}, el("td", { colspan: "8" }, banner("error", "Could not load practice memos.", e.message))));
   }
+  setBusy(busy);
 }
-
-function sampleCard(sample) {
-  const status = el("div", {}, el("div", { class: "spinner", style: "width:18px;height:18px;border-width:3px" }));
-  const card = el("div", { class: "card" }, el("div", {}, el("code", {}, sample.id)), status, el("div", { class: "txt" }, sample.text));
-  return { card, status };
-}
-function fillCard({ card, status }, sample, result, err, seconds) {
+function fillRow(s, result, err, seconds) {
+  const tr = document.querySelector(`#sample-rows tr[data-id="${CSS.escape(s.id)}"]`);
+  if (!tr) return;
+  const q = (c) => tr.querySelector("td." + c);
   if (err) {
-    card.style.borderColor = "var(--bad)";
-    status.replaceChildren(el("div", { class: "lbl d-NONE" }, "NO DECISION"), el("div", { class: "act not" }, "✕ NOT submitted"), el("div", { class: "why" }, err.message));
+    q("ez").replaceChildren("—"); q("dec").replaceChildren(dchip(null)); q("snt").replaceChildren(sentCell(null, err)); q("why").replaceChildren(err.message); q("act").replaceChildren();
     return;
   }
-  const dec = result.decision, ran = result.action_executed === true;
-  const s = signalsOf(result);
-  card.style.borderColor = dec === "APPROVE" ? "var(--ok)" : dec === "BLOCK" ? "var(--bad)" : "var(--hold)";
-  const view = el("button", { class: "secondary", style: "padding:4px 8px;font-size:13px" }, "Open in main view");
-  view.onclick = () => { $("memo").value = sample.text; $("context").value = Object.keys(sample.context || {}).length ? JSON.stringify(sample.context) : ""; updateCount(); renderResult(sample.text, result, seconds); $("h-result").scrollIntoView({ behavior: "smooth" }); };
-  status.replaceChildren(
-    el("div", { class: "lbl d-" + dec }, `${ICONS[dec] || "?"} ${LABELS[dec] || dec}`),
-    el("div", { class: "act " + (ran ? "ran" : "not") }, ran ? "✓ Submitted to partner" : "✕ NOT submitted"),
-    el("div", { class: "hint" }, s.error ? "Ezio: down" : `Ezio: ${s.tier} ${fmt(s.score)} · accuracy ${s.accStatus}`),
-    el("div", { class: "why" }, result.reason), view);
+  const ez = ezioOf(result);
+  q("ez").replaceChildren(ez.error ? el("span", { class: "tier t-NA" }, "UNAVAILABLE") : el("span", {}, el("span", { class: "tier t-" + ez.tier }, ez.tier), " ", fmt(ez.score)));
+  q("dec").replaceChildren(dchip(result.decision));
+  q("snt").replaceChildren(sentCell(result, null));
+  q("why").replaceChildren(result.reason.length > 150 ? result.reason.slice(0, 150) + "…" : result.reason);
+  const view = el("button", { class: "btn small" }, "Evidence");
+  view.onclick = () => { loadIntoChamber(s); renderResult(s.text, result, seconds); };
+  q("act").replaceChildren(view);
 }
-
 async function runSamples(list) {
-  if (!list.length) return $("sample-summary").replaceChildren(banner("warn", "Select at least one sample, or press Run all."));
+  if (busy) return;
+  if (!list.length) return $("sample-summary").replaceChildren(banner("warn", "Select at least one memo, or press Run all 16 samples."));
   setBusy(true);
-  const slots = list.map((s) => ({ sample: s, ui: sampleCard(s), result: null, err: null }));
-  $("sample-cards").replaceChildren(...slots.map((x) => x.ui.card));
-  $("sample-summary").replaceChildren(el("div", { class: "summary" }, `Running ${list.length} sample(s)…`));
+  const slots = list.map((s) => ({ sample: s, result: null, err: null }));
+  for (const x of slots) { const tr = document.querySelector(`#sample-rows tr[data-id="${CSS.escape(x.sample.id)}"]`); if (tr) { tr.querySelector("td.dec").replaceChildren(el("span", { class: "spin" })); tr.querySelector("td.snt").replaceChildren(el("span", { class: "hint" }, "Inspecting…")); } }
+  $("sample-summary").replaceChildren(el("div", { class: "assert" }, el("span", { class: "spin" }), ` Running ${list.length} memo(s) through the gate…`));
   let next = 0;
   async function worker() {
     while (next < slots.length) {
@@ -673,55 +1098,112 @@ async function runSamples(list) {
       const ctrl = new AbortController(), kill = setTimeout(() => ctrl.abort(), CLIENT_TIMEOUT_MS), t0 = performance.now();
       try { x.result = await decide(x.sample.text, x.sample.context || {}, ctrl.signal); } catch (e) { x.err = e; }
       clearTimeout(kill);
-      fillCard(x.ui, x.sample, x.result, x.err, (performance.now() - t0) / 1000);
+      fillRow(x.sample, x.result, x.err, (performance.now() - t0) / 1000);
     }
   }
   await Promise.all(Array.from({ length: Math.min(4, slots.length) }, worker));
-  const count = (d) => slots.filter((x) => x.result && x.result.decision === d).length;
-  const submitted = slots.filter((x) => x.result && x.result.action_executed === true);
-  const allApprove = submitted.every((x) => x.result.decision === "APPROVE");
+  const ok = slots.filter((x) => x.result);
+  const count = (d) => ok.filter((x) => x.result.decision === d).length;
+  const sent = ok.filter((x) => x.result.action_executed === true);
   const errors = slots.filter((x) => x.err).length;
-  $("sample-summary").replaceChildren(el("div", { class: "summary" },
-    `${submitted.length} of ${slots.length} memos submitted to partner — ${allApprove ? "every one of them an APPROVE" : "WARNING: a non-APPROVE memo was submitted"}. ` +
-    `${count("HOLD_FOR_REVIEW")} held and ${count("BLOCK")} blocked never reached the partner.` + (errors ? ` ${errors} request(s) failed (not submitted).` : "")));
+  const allApprove = sent.every((x) => x.result.decision === "APPROVE");
+  const tile = (v, k, c) => el("div", { class: "stat-tile " + (c || "") }, el("div", { class: "v" }, String(v)), el("div", { class: "k" }, k));
+  $("sample-summary").replaceChildren(
+    el("div", { class: "sumrow" }, tile(sent.length, "✓ Confirmed sent to partner", "ok"), tile(slots.length - sent.length, "✕ Not sent", "bad"),
+      tile(count("APPROVE"), "Approved", "ok"), tile(count("HOLD_FOR_REVIEW"), "Held for review", "hold"), tile(count("BLOCK"), "Blocked", "bad"), tile(errors, "Request errors (not policy)")),
+    el("div", { class: "assert " + (allApprove ? "good" : "badx") }, allApprove
+      ? `${sent.length} of ${slots.length} memos reached the partner — every one an APPROVE. ${count("BLOCK")} blocked and ${count("HOLD_FOR_REVIEW")} held never ran submit_memo_to_partner.${errors ? ` ${errors} request(s) failed and were not sent.` : ""}`
+      : "WARNING: a memo that was not approved was forwarded."));
   setBusy(false);
   loadAudit();
 }
-$("run-selected").onclick = () => { const ids = [...document.querySelectorAll("#sample-list input:checked")].map((i) => i.value); runSamples(SAMPLES.filter((s) => ids.includes(s.id))); };
+$("run-selected").onclick = () => { const ids = [...document.querySelectorAll("#sample-rows input:checked")].map((i) => i.value); runSamples(SAMPLES.filter((s) => ids.includes(s.id))); };
 $("run-all").onclick = () => runSamples(SAMPLES);
-$("select-none").onclick = () => document.querySelectorAll("#sample-list input").forEach((i) => (i.checked = false));
+$("select-none").onclick = () => document.querySelectorAll("#sample-rows input").forEach((i) => (i.checked = false));
 
 // ---------- audit trail ----------
+function findingSummary(e) {
+  const f = get(e, "signals.source_of_truth");
+  if (Array.isArray(f)) {
+    const v = (get(e, "signals.verified") || []).length;
+    const parts = {};
+    for (const x of f) { const k = CASE_KINDS[x.kind] ? STATUS_TEXT[CASE_KINDS[x.kind]].toLowerCase() : x.kind === "advocacy" ? "overconfident language" : "other"; parts[k] = (parts[k] || 0) + 1; }
+    const s = Object.entries(parts).map(([k, n]) => `${n} ${k}`);
+    if (v) s.push(`${v} verified`);
+    return s.join(", ") || "No citation issues";
+  }
+  const lines = (e.evidence || []).filter((l) => /^\s*(BLOCK|HOLD_FOR_REVIEW)\s*:/.test(l)).length;
+  return lines ? `${lines} concern(s) in evidence` : "No concerns in evidence";
+}
 async function loadAudit() {
   try {
     const entries = ((await getJSON("/api/audit")).entries || []).slice().reverse();
-    if (!entries.length) return $("audit").replaceChildren(el("p", { class: "empty" }, "No decisions logged yet."));
-    $("audit").replaceChildren(el("table", { class: "audit-table" },
-      el("thead", {}, el("tr", {}, el("th", {}, "Time (UTC)"), el("th", {}, "Decision"), el("th", {}, "Memo"), el("th", {}, "Reason"))),
-      el("tbody", {}, entries.map((e) => el("tr", {},
-        el("td", { class: "time" }, String(e.timestamp || "").replace("T", " ").replace("+00:00", "")),
-        el("td", { class: "dec", style: "color:" + (e.decision === "APPROVE" ? "var(--ok)" : e.decision === "BLOCK" ? "var(--bad)" : "var(--hold)") }, `${ICONS[e.decision] || ""} ${LABELS[e.decision] || e.decision}`),
-        el("td", {}, String(e.input || "").slice(0, 120) + (String(e.input || "").length > 120 ? "…" : "")),
-        el("td", {}, String(e.reason || "")))))));
+    if (!entries.length) return $("audit").replaceChildren(el("div", { class: "empty" }, "No decisions logged yet. Inspect a memorandum to create the first record."));
+    const head = el("div", { class: "hrow hd" }, el("span", {}, "Time (UTC)"), el("span", {}, "Decision"), el("span", {}, "Memorandum"), el("span", {}, "Ezio"), el("span", {}, "Routing"), el("span", {}, "Human review"));
+    $("audit").replaceChildren(head, ...entries.map((e) => {
+      const ez = e.ezio || {};
+      const ezTxt = get(ez, "verdict.tier") ? `${ez.verdict.tier} ${fmt(ez.verdict.score)}` : ez.error ? "Unavailable" : "—";
+      const rev = sessionReviews.find((r) => r.input === e.input && r.time >= String(e.timestamp));
+      const routing = e.decision === "APPROVE" ? el("span", { class: "sent yes", title: "Only APPROVE runs submit_memo_to_partner (actions.log)" }, "✓ Gate opened") : el("span", { class: "sent no" }, "✕ Not sent");
+      const review = e.decision === "HOLD_FOR_REVIEW" ? el("span", { class: "sent wait" }, rev ? `Reviewed: ${rev.reviewer_choice.toUpperCase()}` : "Required") : el("span", { class: "hint" }, "Not required");
+      return el("details", { class: "hist" },
+        el("summary", {}, el("div", { class: "hrow" }, el("span", { class: "hint" }, String(e.timestamp || "").replace("T", " ").replace("+00:00", "")), dchip(e.decision),
+          el("span", { class: "hmemo" }, String(e.input || "")), el("span", {}, ezTxt), routing, review)),
+        el("div", { class: "hbody" },
+          el("div", {}, el("b", {}, "Memorandum: "), el("span", { style: "font-family:var(--serif)" }, String(e.input || ""))),
+          el("div", {}, el("b", {}, "Reason: "), String(e.reason || "")),
+          el("div", {}, el("b", {}, "Independent verification: "), findingSummary(e)),
+          el("div", {}, el("b", {}, "Ezio: "), ez.error ? `Unavailable (${ez.error})` : `${ezTxt}${get(ez, "verdict.summary") ? " · " + ez.verdict.summary : ""}${get(ez, "dimensions.accuracy.status") ? " · accuracy " + ez.dimensions.accuracy.status : ""}`),
+          rev ? el("div", {}, el("b", {}, "Reviewer: "), `${rev.reviewer_choice.toUpperCase()} at ${rev.time} — “${rev.reason}” (memo not forwarded)`) : null,
+          el("div", {}, el("b", {}, "Evidence:")), el("ul", {}, (e.evidence || []).map((l) => el("li", {}, String(l))))));
+    }));
   } catch (e) {
-    $("audit").replaceChildren(banner("error", "Could not load the audit trail.", e.message));
+    $("audit").replaceChildren(el("div", { style: "padding:12px" }, banner("error", "Could not load the audit trail.", e.message)));
   }
 }
 function renderReviews() {
   if (!sessionReviews.length) return;
   $("reviews").replaceChildren(el("table", {},
-    el("thead", {}, el("tr", {}, el("th", {}, "Time (UTC)"), el("th", {}, "Gate said"), el("th", {}, "Reviewer"), el("th", {}, "Reason"), el("th", {}, "Memo"))),
-    el("tbody", {}, sessionReviews.map((r) => el("tr", {}, el("td", { class: "time" }, r.time), el("td", {}, LABELS[r.original_decision]),
-      el("td", { style: "font-weight:800" }, r.reviewer_choice.toUpperCase()), el("td", {}, r.reason), el("td", {}, r.input.slice(0, 80)))))));
+    el("thead", {}, el("tr", {}, el("th", {}, "Time (UTC)"), el("th", {}, "Gate said"), el("th", {}, "Reviewer"), el("th", {}, "Justification"), el("th", {}, "Forwarded?"), el("th", {}, "Memorandum"))),
+    el("tbody", {}, sessionReviews.map((r) => el("tr", {}, el("td", { class: "nowrap" }, r.time), el("td", {}, dchip(r.original_decision)),
+      el("td", { style: "font-weight:800" }, String(r.reviewer_choice).toUpperCase()), el("td", {}, r.reason),
+      el("td", {}, el("span", { class: "sent no" }, r.action_executed === false ? "✕ No (review only logs)" : "Not confirmed")), el("td", { class: "memo" }, String(r.input).slice(0, 90)))))));
+  loadAudit();
 }
 $("refresh-audit").onclick = loadAudit;
 
-// ---------- startup: say plainly if the gate is not there ----------
-(async () => {
-  try { await getJSON("/health"); }
-  catch (_) { $("global-banners").append(banner("error", "The gate is not responding.", "Start it with: python3 gate.py serve --persona paralegal")); }
-  loadSamples(); loadAudit(); updateCount();
+// ---------- 3D cursor response (decorative; off while typing and with reduced motion) ----------
+(function tilt() {
+  const ch = $("chamber"), nodes = document.querySelector(".nodes");
+  let tx = 0, ty = 0, x = 0, y = 0, raf = 0;
+  const MAX = 4;
+  function frame() {
+    x += (tx - x) * .08; y += (ty - y) * .08;
+    const settled = Math.abs(tx - x) < .01 && Math.abs(ty - y) < .01;
+    ch.style.transform = Math.abs(x) < .01 && Math.abs(y) < .01 ? "" : `rotateX(${x.toFixed(3)}deg) rotateY(${y.toFixed(3)}deg)`;
+    ch.style.setProperty("--sx", (-y * 3).toFixed(2)); ch.style.setProperty("--sy", (x * 3).toFixed(2));
+    nodes.style.transform = `translate(${(y * 2.5).toFixed(2)}px, ${(-x * 2.5).toFixed(2)}px)`;
+    raf = settled ? 0 : requestAnimationFrame(frame);
+  }
+  const kick = () => { if (!raf) raf = requestAnimationFrame(frame); };
+  window.addEventListener("pointermove", (e) => {
+    if (!MOTION) { tx = ty = 0; kick(); return; }
+    const r = ch.getBoundingClientRect();
+    const nx = (e.clientX - r.left) / r.width - .5, ny = (e.clientY - r.top) / r.height - .5;
+    ch.style.setProperty("--mx", `${((nx + .5) * 100).toFixed(1)}%`); ch.style.setProperty("--my", `${((ny + .5) * 100).toFixed(1)}%`);
+    const far = Math.abs(nx) > 1 || Math.abs(ny) > 1.2 || document.activeElement === $("memo") || document.activeElement === $("context");
+    tx = far ? 0 : -ny * MAX; ty = far ? 0 : nx * MAX; kick();
+  }, { passive: true });
+  document.addEventListener("pointerleave", () => { tx = ty = 0; kick(); });
+  $("memo").addEventListener("focus", () => { tx = ty = 0; kick(); });
 })();
+
+// ---------- startup ----------
+async function health() {
+  try { await getJSON("/health"); $("sys").replaceChildren(el("span", { class: "dot ok" }), "Gate online"); $("global-banners").replaceChildren(); }
+  catch (_) { $("sys").replaceChildren(el("span", { class: "dot bad" }), "Gate offline"); $("global-banners").replaceChildren(banner("error", "The gate is not responding.", "Nothing can be forwarded until it is back. Start it with: python3 gate.py serve --persona paralegal")); }
+}
+health(); loadSamples(); loadAudit(); updateCount();
 </script>
 </body>
 </html>
