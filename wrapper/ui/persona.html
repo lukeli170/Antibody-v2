@@ -8,7 +8,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Memo Submission Gate</title>
+<title>Paralegal memo check</title>
 <style>
   :root {
     --bg: #f6f5f1; --panel: #ffffff; --ink: #1d1f23; --muted: #5d6470; --line: #d9d6cc;
@@ -143,7 +143,7 @@
 </head>
 <body>
 <header>
-  <h1>Memo Submission Gate</h1>
+  <h1>Paralegal memo check</h1>
   <p>Paralegal → supervising partner. Every memo passes the firm's approval gate before it is submitted. Only an <strong>APPROVE</strong> from the gate submits it.</p>
 </header>
 <main>
@@ -157,10 +157,10 @@
         <textarea id="memo" placeholder="Paste the memo you are about to send to the partner. Cite cases the way you would in the memo, e.g. Gideon v. Wainwright, 372 U.S. 335 (1963)."></textarea>
         <div id="memo-count" class="counter">0 / 20,000</div>
         <details>
-          <summary>Optional context (JSON object)</summary>
+          <summary>Optional matter details</summary>
           <label for="context">Context</label>
           <textarea id="context" placeholder='{"matter": "State v. Doe", "jurisdiction": "CA"}'></textarea>
-          <div class="hint">Leave empty for none. Must be a JSON object, e.g. {"matter": "..."}.</div>
+          <div class="hint">Leave empty for none. Format: {"matter": "State v. Doe"}.</div>
         </details>
         <div id="input-error" aria-live="assertive"></div>
         <div class="row">
@@ -172,7 +172,7 @@
 
       <section class="panel" aria-labelledby="h-samples">
         <h2 id="h-samples">3. Try sample memos side by side</h2>
-        <p class="hint">Practice memos (answers hidden). Run several at once and watch which ones actually reach the partner. Note: an approved sample really runs the mock submission (logged to actions.log).</p>
+        <p class="hint">Practice memos (answers hidden). Run several at once and watch which ones actually reach the partner. <strong>Only an APPROVE submitted the memo to the partner; HOLD and BLOCK results were NOT sent.</strong></p>
         <div id="sample-list" class="sample-list"><div class="empty" style="padding:8px">Loading samples…</div></div>
         <div class="row">
           <button id="run-selected">Run selected</button>
@@ -200,7 +200,7 @@
     <h2 id="h-audit">4. Audit trail</h2>
     <div class="row" style="margin-top:0">
       <button id="refresh-audit" class="secondary">Refresh</button>
-      <span class="hint">Last 50 gate decisions from audit_log.jsonl (GET /api/audit). Reviewer choices are logged separately to review_log.jsonl.</span>
+      <span class="hint">The last 50 decisions the check made. Reviewer choices are recorded in a separate review log.</span>
     </div>
     <div id="audit"></div>
     <h3>Reviews logged this session</h3>
@@ -216,7 +216,7 @@ const CLIENT_TIMEOUT_MS = 65000;   // harness allows 60 s per decision; give the
 const LABELS = { APPROVE: "APPROVE", HOLD_FOR_REVIEW: "HOLD FOR REVIEW", BLOCK: "BLOCK" };
 const ICONS = { APPROVE: "✓", HOLD_FOR_REVIEW: "‖", BLOCK: "✕" };
 const MEANING = {
-  APPROVE: "Approving means the memo goes to the supervising partner right now via submit_memo_to_partner, and the partner may rely on its citations in advice or a filing.",
+  APPROVE: "This memo goes to the partner as written. The partner may rely on its citations in advice or a filing.",
   HOLD_FOR_REVIEW: "Held: the memo was NOT sent. Approving it anyway would put an unverified citation or claim in front of the partner. A reviewer must answer the question below first.",
   BLOCK: "Blocked: the memo was NOT sent. Approving it would hand the partner a fabricated case, a misstated holding, or a contradicted claim, which is the kind of error courts sanction.",
 };
@@ -243,8 +243,8 @@ async function postJSON(url, body, signal) {
   try {
     response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal });
   } catch (e) {
-    if (e.name === "AbortError") throw Object.assign(new Error("No response from the wrapper within 65 seconds."), { kind: "timeout" });
-    throw Object.assign(new Error("Could not reach the gate (wrapper/serve.py). Is `python3 gate.py serve --persona paralegal` still running?"), { kind: "network" });
+    if (e.name === "AbortError") throw Object.assign(new Error("No answer from the memo check within 65 seconds."), { kind: "timeout" });
+    throw Object.assign(new Error("Could not reach the memo check. Ask whoever runs it to restart it, then try again."), { kind: "network" });
   }
   let data = null;
   try { data = await response.json(); } catch (_) { /* non-JSON body */ }
@@ -459,8 +459,8 @@ function signalsGrid(s) {
 
 function ezioBanners(result, s) {
   const out = [];
-  if (s.error) out.push(banner("error", "Ezio is down or returned a bad response.", `The gate could not get a trust score (${s.error}). It fell back to its failure policy: ${LABELS[result.decision] || result.decision}. Nothing was fact-checked by Ezio.`));
-  else if (s.accStatus === "unavailable") out.push(banner("warn", "Ezio is degraded: its fact-check was unavailable.", "Tone, bias and agreement were scored, but no claim in this memo was fact-checked by Ezio. Do not read the tier as a check of the facts."));
+  if (s.error) out.push(banner("error", "Fever mode: Ezio unavailable, holding for review.", `The gate could not get a trust score (${s.error}). It fell back to its failure policy: ${LABELS[result.decision] || result.decision}. Nothing was fact-checked by Ezio.`));
+  else if (s.accStatus === "unavailable") out.push(banner("warn", "Fever mode: Ezio's fact-check unavailable, holding for review.", "Tone, bias and agreement were scored, but no claim in this memo was fact-checked by Ezio. Do not read the tier as a check of the facts."));
   else if (s.accStatus === "not_scored") out.push(banner("info", "Ezio did not fact-check any claims (accuracy not scored).", "A green tier here only means tone and balance looked fine. The firm's citation lists are the only check on the cases."));
   return out;
 }
@@ -520,7 +520,7 @@ function reviewBox(text, result, s, cases) {
       radio("proceed", "Proceed: concern resolved"), radio("reject", "Reject: send back to author")),
     el("label", { for: "review-reason" }, "Reason (logged)"), reason,
     el("div", { class: "row" }, btn),
-    el("p", { class: "hint" }, "Logging a review records your answer in review_log.jsonl. It does not submit the memo or change the gate's decision."),
+    el("p", { class: "hint" }, "Logging a review records your answer in the review log. It does not submit the memo or change the gate's decision."),
     err, done);
 }
 
@@ -536,7 +536,7 @@ function renderResult(text, result, seconds) {
     el("div", { class: "decision d-" + (LABELS[dec] ? dec : "NONE") },
       el("div", { class: "icon", "aria-hidden": "true" }, ICONS[dec] || "?"),
       el("div", {}, el("div", { class: "sub" }, "Gate decision"), el("div", { class: "label" }, LABELS[dec] || String(dec)),
-        el("div", { class: "sub" }, `Decided by the wrapper in ${seconds.toFixed(1)} s`))),
+        el("div", { class: "sub" }, `Checked in ${seconds.toFixed(1)} s`))),
     el("div", { class: "action " + (ran ? "ran" : "not") }, ran ? "✓ Submitted to partner" : "✕ NOT submitted to partner"),
     el("p", { class: "meaning" }, el("strong", {}, "What this means: "), MEANING[dec] || ""),
     el("p", { class: "reason" }, el("strong", {}, "Reason: "), result.reason || "(no reason given)"),
@@ -573,8 +573,8 @@ function parseContext() {
   const raw = $("context").value.trim();
   if (!raw) return {};
   let ctx;
-  try { ctx = JSON.parse(raw); } catch (_) { throw new Error("Context is not valid JSON. Fix it or leave it empty."); }
-  if (!ctx || typeof ctx !== "object" || Array.isArray(ctx)) throw new Error("Context must be a JSON object, like {\"matter\": \"State v. Doe\"}.");
+  try { ctx = JSON.parse(raw); } catch (_) { throw new Error("Matter details are not in the expected format. Fix them or leave the box empty."); }
+  if (!ctx || typeof ctx !== "object" || Array.isArray(ctx)) throw new Error("Matter details must look like {\"matter\": \"State v. Doe\"}.");
   return ctx;
 }
 
