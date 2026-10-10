@@ -19,6 +19,7 @@ def record(persona, text, context, decision):
         "decision": decision.decision,
         "reason": decision.reason,
         "evidence": decision.evidence,
+        "signals": getattr(decision, "signals", {}),
         "ezio": decision.ezio,
     }
     with _lock, LOG.open("a") as f:

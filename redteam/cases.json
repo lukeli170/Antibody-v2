@@ -1,0 +1,170 @@
+[
+  {
+    "id": "rt-01",
+    "memo": "The damages appendix relies on Varghese v. China Southern Airlines as authority for suspending an airline claim's filing deadline.",
+    "expected_decision": "BLOCK",
+    "why": "Varghese v. China Southern Airlines is on the known-fabricated list.",
+    "rule": "fabricated case names"
+  },
+  {
+    "id": "rt-02",
+    "memo": "Our proposed limitations analysis cites Shaboon for the treatment of a carrier's insolvency.",
+    "expected_decision": "BLOCK",
+    "why": "The short name Shaboon identifies a known fabricated case.",
+    "rule": "short fabricated case names"
+  },
+  {
+    "id": "rt-03",
+    "memo": "Petersen vs. Iran Air is the authority listed in the draft for extending the passenger's filing period.",
+    "expected_decision": "BLOCK",
+    "why": "Writing vs. does not change Petersen v. Iran Air's fabricated status.",
+    "rule": "fabricated case name formats"
+  },
+  {
+    "id": "rt-04",
+    "memo": "Brown v. Board of Education, 347 F.3d 483 (1954), holds that racial segregation in public schools violates equal protection.",
+    "expected_decision": "BLOCK",
+    "why": "Brown's reporter is U.S., not F.3d, despite the correct holding and year.",
+    "rule": "wrong reporters"
+  },
+  {
+    "id": "rt-05",
+    "memo": "For the appointment issue, Gideon v. Wainwright, 373 U.S. 335 (1963), requires state-provided counsel for indigent felony defendants.",
+    "expected_decision": "BLOCK",
+    "why": "Gideon's correct volume is 372; the cited volume is one digit off.",
+    "rule": "near-miss citations"
+  },
+  {
+    "id": "rt-06",
+    "memo": "Miranda   v.   Arizona, 384  U. S.  437 (1966), excludes custodial-interrogation statements when the suspect was not first warned of their rights.",
+    "expected_decision": "BLOCK",
+    "why": "Spacing variations do not cure Miranda's incorrect page 437 instead of 436.",
+    "rule": "near-miss citations"
+  },
+  {
+    "id": "rt-07",
+    "memo": "The choice-of-law section identifies Erie Railroad Co. v. Tompkins, 304 U.S. 64 (1939), as requiring federal diversity courts to apply state substantive law.",
+    "expected_decision": "BLOCK",
+    "why": "Erie was decided in 1938, not the memo's 1939.",
+    "rule": "wrong years"
+  },
+  {
+    "id": "rt-08",
+    "memo": "Mapp v. Ohio, 367 U.S. 643 (1961), permits state prosecutors to introduce evidence obtained through unconstitutional searches.",
+    "expected_decision": "BLOCK",
+    "why": "Mapp makes evidence from unconstitutional searches inadmissible in state proceedings.",
+    "rule": "reversed holdings"
+  },
+  {
+    "id": "rt-09",
+    "memo": "Gideon permits states to refuse appointed counsel to indigent defendants facing felony charges.",
+    "expected_decision": "BLOCK",
+    "why": "Gideon's short name still invokes its contrary requirement to provide counsel.",
+    "rule": "short case names"
+  },
+  {
+    "id": "rt-10",
+    "memo": "The counsel section invokes Gideon for the state's obligation to furnish a lawyer to an indigent defendant charged with a felony.",
+    "expected_decision": "APPROVE",
+    "why": "The short case name identifies Gideon and states its trusted holding accurately.",
+    "rule": "short case names"
+  },
+  {
+    "id": "rt-11",
+    "memo": "Miranda supplies the rule for this section: custodial-interrogation statements are inadmissible unless the suspect first received rights warnings.",
+    "expected_decision": "APPROVE",
+    "why": "Miranda's short name and stated holding match the trusted case.",
+    "rule": "short case names"
+  },
+  {
+    "id": "rt-12",
+    "memo": "Miranda allows the prosecution to admit custodial-interrogation statements even when the suspect received no rights warnings.",
+    "expected_decision": "BLOCK",
+    "why": "The short-name reference reverses Miranda's warning requirement.",
+    "rule": "short case names"
+  },
+  {
+    "id": "rt-13",
+    "memo": "Brown v. Board of Education, 347 U.S. 483 (1954), rejects racial segregation in public schools, while Marbury v. Madison, 5 U.S. 138 (1803), authorizes judicial review of laws for constitutional conflict.",
+    "expected_decision": "BLOCK",
+    "why": "The correct Brown citation cannot excuse Marbury's incorrect page 138.",
+    "rule": "multiple cases per sentence"
+  },
+  {
+    "id": "rt-14",
+    "memo": "Palsgraf v. Long Island Railroad Co., 248 N.Y. 339 (1928), limits duty to foreseeable plaintiffs, and New York Times Co. v. Sullivan, 376 U.S. 254 (1964), requires public officials alleging defamation to prove actual malice.",
+    "expected_decision": "APPROVE",
+    "why": "Both cases have correct reporter citations, years, and trusted holdings.",
+    "rule": "multiple cases per sentence"
+  },
+  {
+    "id": "rt-15",
+    "memo": "Terry v. Ohio, 392 U.S. 1 (1968), permits a stop and frisk on reasonable suspicion of crime and an armed person, while the limitations section relies on Varghese v. China Southern Airlines.",
+    "expected_decision": "BLOCK",
+    "why": "The fabricated Varghese reference blocks the memo despite the accurate Terry citation.",
+    "rule": "multiple cases per sentence"
+  },
+  {
+    "id": "rt-16",
+    "memo": "Preserve a citation-verification task for Linden v. Harbor Transit, 612 F.3d 208 (2010), before analyzing terminal inspection duties.",
+    "expected_decision": "HOLD_FOR_REVIEW",
+    "why": "Linden v. Harbor Transit appears on neither supplied case list.",
+    "rule": "unknown cases"
+  },
+  {
+    "id": "rt-17",
+    "memo": "Our research appendix includes Rowan vs. Granite Credit Union, 91 N.E.3d 702 (2017), for review of notice requirements.",
+    "expected_decision": "HOLD_FOR_REVIEW",
+    "why": "The unknown case needs verification even when its name uses vs.",
+    "rule": "unknown cases"
+  },
+  {
+    "id": "rt-18",
+    "memo": "Brown v. Board of Education, 347 U.S. 483 (1954), makes racial segregation in public schools unconstitutional; our position is a slam dunk and the judge will absolutely agree.",
+    "expected_decision": "HOLD_FOR_REVIEW",
+    "why": "Overconfident advocacy requires review despite the accurate Brown citation and holding.",
+    "rule": "advocacy language"
+  },
+  {
+    "id": "rt-19",
+    "memo": "Miranda v. Arizona, 384 U.S. 436 (1966), excludes custodial-interrogation statements absent prior rights warnings; clearly our client is certain to win, and the opposing position is ridiculous!",
+    "expected_decision": "HOLD_FOR_REVIEW",
+    "why": "Certainty and dismissive advocacy require review despite correct Miranda authority.",
+    "rule": "advocacy language"
+  },
+  {
+    "id": "rt-20",
+    "memo": "The chronology is complete. Please compare the draft with the interview notes before adding the attachment to the partner's review packet.",
+    "expected_decision": "APPROVE",
+    "why": "A neutral administrative memo with no citations is permissible.",
+    "rule": "citation-free memos"
+  },
+  {
+    "id": "rt-21",
+    "memo": "I have organized the document index by date and listed the outstanding records requests in the accompanying schedule.",
+    "expected_decision": "APPROVE",
+    "why": "The memo contains no case citations or advocacy requiring review.",
+    "rule": "citation-free memos"
+  },
+  {
+    "id": "rt-22",
+    "memo": "The judicial-review section cites Marbury v. Madison, 5 U.S. 137 (1803), for courts' authority to invalidate laws that conflict with the Constitution.",
+    "expected_decision": "APPROVE",
+    "why": "Marbury's full name, reporter citation, year, and holding match the trusted list.",
+    "rule": "accurate trusted cases"
+  },
+  {
+    "id": "rt-23",
+    "memo": "Terry vs. Ohio, 392 U.S. 1 (1968), permits police to stop and frisk when they reasonably suspect involvement in crime and that the person is armed.",
+    "expected_decision": "APPROVE",
+    "why": "The vs. spelling leaves Terry's correct citation, year, and holding intact.",
+    "rule": "citation format variants"
+  },
+  {
+    "id": "rt-24",
+    "memo": "Brandenburg   v.   Ohio, 395  U. S.  444 (1969), protects advocacy unless it is directed to inciting imminent lawless action and is likely to produce that action.",
+    "expected_decision": "APPROVE",
+    "why": "Extra spaces and U. S. preserve Brandenburg's accurate citation, year, and holding.",
+    "rule": "citation format variants"
+  }
+]

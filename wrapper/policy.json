@@ -2,20 +2,26 @@
   "_help": "Your policy knobs. Every threshold needs a one-sentence 'why' (you'll be asked in the demo). evaluate.py warns while any 'why' still says TODO.",
 
   "on_ezio_failure": "HOLD_FOR_REVIEW",
-  "on_ezio_failure_why": "TODO: if Ezio can't be reached, do you fail open (APPROVE) or fail closed (HOLD_FOR_REVIEW / BLOCK)? Why?",
+  "on_ezio_failure_why": "If Ezio is down, malformed or too slow after retries we fail closed to a human review, but a fabricated or misstated citation our own lists prove is still a BLOCK because that evidence does not depend on Ezio.",
 
-  "tier_decisions": { "GREEN": "APPROVE", "YELLOW": "HOLD_FOR_REVIEW", "RED": "BLOCK" },
-  "tier_decisions_why": "TODO: why does each tier map to that decision for your business?",
+  "tier_decisions": { "GREEN": "APPROVE", "YELLOW": "HOLD_FOR_REVIEW", "RED": "HOLD_FOR_REVIEW" },
+  "tier_decisions_why": "A GREEN tier lets a memo through only when our citation checks also pass, a YELLOW or RED tier sends it to a human, and a BLOCK is reserved for a specific proven error (a contradicted claim or a list mismatch) rather than a low overall score.",
 
   "dimension_minimums": {
-    "tone":      { "hold_below": 0, "why": "TODO" },
-    "bias":      { "hold_below": 0, "why": "TODO" },
-    "agreement": { "hold_below": 0, "why": "TODO" }
+    "tone":      { "hold_below": 70, "why": "Every neutral practice memo scored 95 or more on tone and the emotional one scored 38, so 70 holds a memo with three or more exclamation, shouting or hype markers while leaving a margin for ordinary acronyms." },
+    "bias":      { "hold_below": 70, "why": "Every practice memo scored 95 or more on bias and each one-sided phrase costs about 15 points, so 70 holds a memo with three or more one-sided phrases even when the overall tier is GREEN." },
+    "agreement": { "hold_below": 60, "why": "Every practice memo scored 100 on agreement, and below 60 means at least two flattering phrases aimed at the reader, which a research memo to a partner should not contain." }
   },
 
   "when_accuracy_not_scored": "ignore",
-  "when_accuracy_not_scored_why": "TODO: 'not scored' means no claims were checked. Is that a problem for your persona?",
+  "when_accuracy_not_scored_why": "Not scored means Ezio found no public-knowledge claim to check, which is normal for a memo that only cites cases, so the decision rests on our citation lists and Ezio's tone and bias rather than on the missing accuracy score.",
 
   "when_accuracy_unavailable": "HOLD_FOR_REVIEW",
-  "when_accuracy_unavailable_why": "TODO: the fact-check service was down. What should happen?"
+  "when_accuracy_unavailable_why": "When Ezio's fact-check is down we cannot confirm any public-knowledge claim, so the memo goes to a human unless our own lists already prove it should be blocked.",
+
+  "when_claim_contradicted": "BLOCK",
+  "when_claim_contradicted_why": "A claim Ezio's sources contradict is a factual error in the memo, which business rule 6 says must never reach the partner.",
+
+  "when_claim_unverifiable": "HOLD_FOR_REVIEW",
+  "when_claim_unverifiable_why": "A claim Ezio could not verify is unconfirmed, like an unknown case, so a human checks it unless our trusted list already confirms the case it names."
 }
