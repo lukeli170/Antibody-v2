@@ -38,8 +38,9 @@ def cell(value):
 
 def fingerprint():
     digest = hashlib.sha256()
-    for name in ("wrapper.py", "policy.json", "serve.py", "ezio_client.py", "audit.py", "mock_actions.py"):
-        digest.update(name.encode() + b"\0" + (REPO / "wrapper" / name).read_bytes())
+    paths = sorted((REPO / "wrapper").glob("*.py")) + [REPO / "wrapper" / "policy.json"]
+    for path in paths:
+        digest.update(path.name.encode() + b"\0" + path.read_bytes())
     return digest.hexdigest()
 
 
