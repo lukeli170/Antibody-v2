@@ -95,6 +95,9 @@
   .claim.supported { text-decoration-color: var(--ok); text-decoration-style: solid; }
   .claim.contradicted { text-decoration-color: var(--bad); text-decoration-style: wavy; }
   .claim.unverified { text-decoration-color: var(--hold); text-decoration-style: dotted; }
+  .flag { box-shadow: inset 0 -0.55em 0 var(--hold-bg); font-weight: 700; }
+  .flag.bad { box-shadow: inset 0 -0.55em 0 var(--bad-bg); color: var(--bad); }
+  .flag.hold { color: var(--hold); }
   .tag { font-family: system-ui, sans-serif; font-size: 11px; font-weight: 800; vertical-align: super; margin-left: 2px; padding: 0 4px; border-radius: 3px; background: var(--panel); border: 1px solid currentColor; white-space: nowrap; }
   .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; margin-top: 6px; }
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -339,6 +342,27 @@ function caseVerdicts(result, memo) {
   return cases;
 }
 
+// The exact figures and phrases the gate objected to, quoted in its evidence ("Expected 1803, found 1813",
+// 'Advocacy language "slam dunk"', 'the memo says "without exception"'). Read from the evidence; never computed here.
+function evidenceFlags(result) {
+  const flags = [];
+  for (const line of evidenceOf(result).filter(isConcern)) {
+    const kind = /^\s*BLOCK\s*:/.test(line) ? "bad" : "hold";
+    const gate = line.replace(/\s*Memo text:[\s\S]*$/, "");
+    const q = (re) => { const m = gate.match(re); return m ? m[1] : null; };
+    const expected = q(/[Ee]xpected\s+"?([^",]+?)"?(?:,|\s+found)/);
+    const found = q(/found\s+"([^"]+)"/) || q(/found\s+(\d{3,4})\b/);
+    if (found) flags.push({ text: found.replace(/^\(|\)$/g, ""), kind, label: expected ? `wrong: should be ${expected}` : "wrong figure" });
+    const adv = q(/[Aa]dvocacy language\s+"([^"]+)"/);
+    if (adv) flags.push({ text: adv, kind, label: "advocacy" });
+    const says = q(/the memo (?:says|states the standard as)\s+"([^"]+)"/);
+    if (says) flags.push({ text: says, kind, label: "misstates holding" });
+    const cite = q(/[Cc]itation\s+"([^"]+)"\s+is not on the trusted list/);
+    if (cite) flags.push({ text: cite, kind, label: "unverified cite" });
+  }
+  return flags;
+}
+
 // Locate an Ezio claim in the memo: exact first, then the longest leading run of its words (claims are paraphrased).
 function locateClaim(memo, claimText) {
   const low = memo.toLowerCase();
@@ -352,9 +376,16 @@ function locateClaim(memo, claimText) {
 }
 
 // ---------- rendering ----------
-function renderMemo(memo, cases, claims) {
-  const caseAt = new Array(memo.length).fill(null), claimAt = new Array(memo.length).fill(null);
-  const caseEnds = new Map(), claimEnds = new Map(), unplaced = [];
+function renderMemo(memo, cases, claims, flags = []) {
+  const caseAt = new Array(memo.length).fill(null), claimAt = new Array(memo.length).fill(null), flagAt = new Array(memo.length).fill(null);
+  const caseEnds = new Map(), claimEnds = new Map(), flagEnds = new Map(), unplaced = [];
+  const low = memo.toLowerCase();
+  for (const f of flags) {
+    const at = f.text ? low.indexOf(f.text.toLowerCase()) : -1;
+    if (at < 0 || flagAt[at]) continue;
+    for (let i = at; i < at + f.text.length; i++) flagAt[i] = f;
+    flagEnds.set(at + f.text.length, f);
+  }
   for (const c of cases) { for (let i = c.start; i < c.end; i++) caseAt[i] = c; caseEnds.set(c.end, c); }
   for (const cl of claims) {
     const v = ["supported", "contradicted"].includes(cl.verdict) ? cl.verdict : "unverified";
@@ -367,10 +398,11 @@ function renderMemo(memo, cases, claims) {
   let i = 0;
   while (i < memo.length) {
     let j = i + 1;
-    while (j < memo.length && caseAt[j] === caseAt[i] && claimAt[j] === claimAt[i] && !caseEnds.has(j) && !claimEnds.has(j)) j++;
-    const c = caseAt[i], v = claimAt[i];
-    let node = el("span", { class: [c ? "case " + c.verdict : "", v ? "claim " + v : ""].join(" ").trim() || null, title: c ? `Case: ${CASE_VERDICT_TEXT[c.verdict]}` : null }, memo.slice(i, j));
+    while (j < memo.length && caseAt[j] === caseAt[i] && claimAt[j] === claimAt[i] && flagAt[j] === flagAt[i] && !caseEnds.has(j) && !claimEnds.has(j) && !flagEnds.has(j)) j++;
+    const c = caseAt[i], v = claimAt[i], f = flagAt[i];
+    let node = el("span", { class: [c ? "case " + c.verdict : "", v ? "claim " + v : "", f ? "flag " + f.kind : ""].join(" ").trim() || null, title: f ? `Gate: ${f.label}` : c ? `Case: ${CASE_VERDICT_TEXT[c.verdict]}` : null }, memo.slice(i, j));
     box.append(node);
+    if (f && flagEnds.get(j) === f) box.append(el("span", { class: "tag flag " + f.kind }, `[${f.label}]`));
     if (caseEnds.has(j) && caseEnds.get(j) === c) box.append(el("span", { class: "tag case " + c.verdict }, `[${CASE_VERDICT_TEXT[c.verdict]}]`));
     if (claimEnds.has(j) && v && claimAt[j] !== v) box.append(el("span", { class: "tag", style: "color:" + (v === "supported" ? "var(--ok)" : v === "contradicted" ? "var(--bad)" : "var(--hold)") }, `[Ezio: ${v}]`));
     i = j;
@@ -387,7 +419,8 @@ function legend() {
     el("span", { class: "case unchecked" }, "Case [not in evidence]"),
     el("span", { class: "claim supported" }, "Ezio claim supported"),
     el("span", { class: "claim contradicted" }, "Ezio claim contradicted"),
-    el("span", { class: "claim unverified" }, "Ezio claim unverified"));
+    el("span", { class: "claim unverified" }, "Ezio claim unverified"),
+    el("span", { class: "flag bad" }, "Figure/phrase the gate objected to [why]"));
 }
 
 function versusPanel(result, s, cases) {
@@ -497,7 +530,7 @@ function renderResult(text, result, seconds) {
   const evidence = evidenceOf(result);
   const dec = result.decision;
   const ran = result.action_executed === true;
-  const { box, unplaced } = renderMemo(text, cases, s.claims);
+  const { box, unplaced } = renderMemo(text, cases, s.claims, evidenceFlags(result));
   const out = [
     ...ezioBanners(result, s),
     el("div", { class: "decision d-" + (LABELS[dec] ? dec : "NONE") },
