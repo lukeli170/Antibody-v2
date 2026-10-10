@@ -304,12 +304,21 @@ const TAGS = [[/^\s*\[?verified\]?\s*:/i, "verified"], [/^\s*\[?unknown\]?\s*:/i
 function classifyLine(line) {
   for (const [re, kind] of TAGS) if (re.test(line)) return kind;
   const l = line.toLowerCase();
+  if (/advocacy|overconfiden|one-sided|emotional/.test(l)) return null;                 // about tone, not about a case
+  if (/on neither|neither the trusted|unverified case/.test(l)) return "unknown";   // "...nor the fabricated list" is not a fabrication
   if (/fabricat|does not exist|did not exist|fake|non-?existent/.test(l)) return "fabricated";
   if (/unknown|unverified|not verified|could not be verified|cannot be verified|not on (either|the|any)|neither list|not (in|on) the trusted|could not verify|cannot verify|not found/.test(l)) return "unknown";
   if (/misstat|wrong|incorrect|mismatch|match|should be|actually|not what|differs|year|cite|citation|reporter|holding|says|expected| vs\.? /.test(l)) return "wrong";
   // Green only on an unambiguous positive line: never when it carries negation or anything that reads like a mismatch.
   if (/\b(verified|confirmed)\b/.test(l) && !/\bnot\b|n't|\bno\b|\bnever\b/.test(l)) return "verified";
   return null;
+}
+// Is an evidence line a concern? The wrapper prefixes concerns with the level it raised (BLOCK: / HOLD_FOR_REVIEW:)
+// and positive or informational lines with "Verified:", "Ezio signals:", "Ezio claim supported", "Not held:".
+function isConcern(line) {
+  if (/^\s*(BLOCK|HOLD_FOR_REVIEW)\s*:/.test(line)) return true;
+  if (/^\s*(APPROVE\s*:|Verified\s*:|Ezio signals\s*:|Ezio claim supported|Not held\s*:)/i.test(line)) return false;
+  return classifyLine(line) !== "verified";
 }
 function caseVerdicts(result, memo) {
   const cases = findCases(memo);
@@ -320,7 +329,8 @@ function caseVerdicts(result, memo) {
     const keys = [norm(c.name), norm(c.short)].filter((k) => k.length > 2);
     const hit = structured.find((s) => s && typeof s.case === "string" && keys.some((k) => norm(s.case).includes(k) || k.includes(norm(s.case))));
     if (hit && CASE_VERDICT_TEXT[hit.verdict]) { c.verdict = hit.verdict; c.detail = hit.detail || ""; continue; }
-    const lines = evidence.filter((e) => keys.some((k) => norm(e).includes(k)));
+    // Match on the gate's own words only: a quoted 'Memo text: "..."' tail names every case in the sentence.
+    const lines = evidence.filter((e) => keys.some((k) => norm(e.replace(/\s*Memo text:[\s\S]*$/, "")).includes(k)));
     const kinds = lines.map(classifyLine).filter(Boolean);
     const order = ["fabricated", "wrong", "unknown", "verified"];
     c.verdict = order.find((k) => kinds.includes(k)) || "unchecked";
@@ -381,7 +391,7 @@ function legend() {
 }
 
 function versusPanel(result, s, cases) {
-  const evidence = evidenceOf(result).filter((e) => classifyLine(e) !== "verified");   // positive lines aren't concerns
+  const evidence = evidenceOf(result).filter(isConcern);   // positive and informational lines aren't concerns
   const flagged = cases.filter((c) => ["fabricated", "wrong", "unknown"].includes(c.verdict));
   const ezioOk = s.tier === "GREEN";
   const ourOk = result.decision === "APPROVE";
@@ -431,7 +441,7 @@ function reviewQuestions(result, s, cases) {
     qs.push(`Does “${c.name}” exist, and does it actually hold what this memo says? Pull it from Westlaw/Lexis and confirm the reporter cite and year before proceeding.`);
   for (const c of cases.filter((c) => c.verdict === "wrong"))
     qs.push(`The gate says a detail of “${c.name}” is misstated (${c.detail || "holding, cite, or year"}). Has the memo been corrected?`);
-  for (const e of evidenceOf(result).filter((e) => classifyLine(e) !== "verified")) {
+  for (const e of evidenceOf(result).filter(isConcern)) {
     const l = e.toLowerCase();
     if (/advoca|overconfiden|one-sided|emotional|tone|slam dunk|clearly|absolutely/.test(l)) qs.push(`Is this language acceptable in an objective research memo, or must it be rewritten? Gate: “${e}”`);
     else if (!cases.some((c) => e.toLowerCase().includes(c.name.toLowerCase())) && !qs.some((q) => q.includes(e))) qs.push(`Can you confirm or resolve this before it goes to the partner: “${e}”?`);
