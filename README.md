@@ -225,3 +225,10 @@ python3 -m unittest test_contract test_harness
 ```
 
 The starter intentionally leaves `check_source_of_truth()` empty and policy justifications as TODOs. Passing these infrastructure tests is not a completed challenge solution.
+
+## Antibody (team submission)
+Persona: paralegal. Python 3.9+, standard library only.
+Run one input: python3 gate.py try --persona paralegal "Under Miranda v. Arizona, 384 U.S. 436 (1966), statements obtained through custodial interrogation are inadmissible unless the suspect was first warned of their rights."
+Practice set: python3 gate.py practice --persona paralegal
+Persona page: python3 gate.py serve --persona paralegal
+Wrapper start command: python3 wrapper/serve.py
