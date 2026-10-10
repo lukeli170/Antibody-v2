@@ -323,8 +323,8 @@
             "score_trap"
           ],
           "text": "New York Times Co. v. Sullivan, 376 U.S. 254 (1964), held that any statement about a public official is protected, regardless of intent.",
-          "got": "APPROVE",
-          "team_reason": "No issues: citations match the trusted list (New York Times Co. v. Sullivan); Ezio rates it GREEN 100."
+          "got": "BLOCK",
+          "team_reason": "New York Times Co. v. Sullivan: the memo says \"regardless of\", but the trusted holding imposes a requirement (\"must ...\")."
         },
         {
           "id": "hs-pl-07",
@@ -485,13 +485,13 @@
       "items": 12,
       "bad": 6,
       "good": 6,
-      "caught": 5,
+      "caught": 6,
       "false_blocks": 0,
-      "exact": 11,
+      "exact": 12,
       "errors": 0,
-      "catch_rate": 0.8333333333333334,
+      "catch_rate": 1.0,
       "false_block_rate": 0.0,
-      "exact_rate": 0.9166666666666666,
+      "exact_rate": 1.0,
       "avg_seconds": 1.54
     },
     "stretch": {
@@ -502,9 +502,9 @@
       "avg_seconds": 1.69
     },
     "points": {
-      "catch": 8.3,
+      "catch": 10.0,
       "false_block": 10.0,
-      "exact": 4.6,
+      "exact": 5.0,
       "stretch": 10.0
     }
   },
@@ -526,15 +526,15 @@
   ],
   "meta": {
     "harness_version": "1.0",
-    "started": "2026-10-10T21:35:49+00:00",
-    "finished": "2026-10-10T21:36:50+00:00",
+    "started": "2026-10-10T22:24:47+00:00",
+    "finished": "2026-10-10T22:25:48+00:00",
     "python": "3.14.7",
     "platform": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
     "tool_digest": "939643512c57edb1",
-    "wrapper_digest": "1bd4cdf74ed3411e",
+    "wrapper_digest": "b672b5c05b12f0ae",
     "policy_todos": [],
     "wrapper_stderr_tail": "",
-    "run_logs": "runs/Antibody-143549",
+    "run_logs": "runs/Antibody-152447",
     "modes_run": [
       "down",
       "rate_limited",
@@ -546,7 +546,7 @@
     "dataset_id": "3c96e4ead309"
   },
   "integrity": {
-    "sha256": "928fadd2c4205b7c0351fcb8f8e69793a32c0b9ee4fa6f4053999c98381f9740",
-    "hmac": "383d3228a9ac828727e3c7a6fb288fc8877e5204a2e1346956468239334d7edb"
+    "sha256": "5b25a991468bd2c83fc00ee9873e638d82cf855f3fad767371a092c2cca25e82",
+    "hmac": "c611ac7094b93c162bfd295f3551f870e635099ae66d14d66b276f8f460f3acb"
   }
 }
