@@ -66,14 +66,16 @@
 
   /* ---------- chamber ---------- */
   .stage { position: relative; perspective: 1400px; scroll-margin-top: 8px; }
-  .depth { transition: transform .7s var(--ease); transform-style: preserve-3d; max-width: 780px; margin: 0 auto; position: relative; }
+  .depth { transition: transform .7s var(--ease); max-width: 780px; margin: 0 auto; position: relative; }
   .stage.inspecting .depth { transform: translateZ(-70px) rotateX(3deg); }
   .chamber { --mx: 50%; --my: 30%; --sx: 0; --sy: 0; position: relative; border-radius: 26px; padding: 16px; background: linear-gradient(180deg, rgba(255,255,255,.96), rgba(250,250,248,.92));
     border: 1px solid rgba(255,255,255,.95); outline: 1px solid var(--line); will-change: transform;
     box-shadow: 0 1px 0 #fff inset, calc(var(--sx) * 1px) calc(34px + var(--sy) * 1px) 70px -28px rgba(20,24,40,.28), calc(var(--sx) * .4px) calc(10px + var(--sy) * .4px) 22px -12px rgba(20,24,40,.12); }
-  .chamber .glare { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: radial-gradient(520px circle at var(--mx) var(--my), rgba(255,255,255,.9), transparent 45%); mix-blend-mode: screen; }
-  .chamber .rim { position: absolute; inset: -1px; border-radius: inherit; pointer-events: none; padding: 1px; background: radial-gradient(380px circle at var(--mx) var(--my), rgba(20,22,28,.28), transparent 60%);
+  .chamber .glare { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: radial-gradient(520px circle at var(--mx) var(--my), rgba(255,255,255,.55), transparent 45%); z-index: 0; }
+  .chamber .rim { position: absolute; inset: -1px; border-radius: inherit; pointer-events: none; z-index: 0; padding: 1px; background: radial-gradient(380px circle at var(--mx) var(--my), rgba(20,22,28,.28), transparent 60%);
     -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
+  .ch-head, .surface, .ch-foot, #ctx-panel, #input-error { position: relative; z-index: 2; }
+  .nodes, .nodes span, .scan, .void, .void * { pointer-events: none !important; }
   .ch-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 2px 6px 12px; position: relative; }
   .ch-title { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 14px; }
   .ch-title svg { flex: none; }
@@ -470,9 +472,9 @@ const CLIENT_TIMEOUT_MS = 65000;   // harness allows 60 s per decision; give the
 const LABELS = { APPROVE: "APPROVE", HOLD_FOR_REVIEW: "HOLD FOR REVIEW", BLOCK: "BLOCK" };
 const SYM = { APPROVE: "✓", HOLD_FOR_REVIEW: "‖", BLOCK: "✕" };
 const CONSEQUENCE = {
-  APPROVE: "Approving means the memorandum goes to the supervising partner now, and the partner may rely on its cited authorities in advice or a filing.",
-  HOLD_FOR_REVIEW: "Not forwarded. A cited authority or claim could not be verified; approving it anyway would put an unverified citation in front of the partner. Human review required.",
-  BLOCK: "Not forwarded. Approving it would hand the partner a fabricated authority, a misstated holding, or a contradicted claim — the kind of error courts sanction.",
+  APPROVE: "The partner may rely on its cited authorities in advice or a filing.",
+  HOLD_FOR_REVIEW: "Not forwarded: a cited authority or claim could not be verified. Human review required.",
+  BLOCK: "Not forwarded: approving it would hand the partner a fabricated authority, a misstated holding, or a contradicted claim — the kind of error courts sanction.",
 };
 const CASE_KINDS = { fabricated: "FABRICATED", unverified_case: "UNKNOWN", unverified_citation: "UNKNOWN", citation_unverified: "UNKNOWN", citation_mismatch: "DETAIL_MISMATCH", year_mismatch: "DETAIL_MISMATCH", holding: "DETAIL_MISMATCH" };
 const STATUS_TEXT = { VERIFIED: "VERIFIED", UNKNOWN: "UNKNOWN", FABRICATED: "FABRICATED", DETAIL_MISMATCH: "DETAIL MISMATCH" };
@@ -807,8 +809,8 @@ function drivers(result) {
 
 function ezioBanners(result, ez) {
   const out = [];
-  if (ez.error) out.push(banner("error", "Ezio unavailable. Independent citation checks completed.", `Ezio returned no usable score (${ez.error}). Routing followed the gate's failure policy: ${LABELS[result.decision]}. A missing score is never treated as approval.`));
-  else if (ez.accStatus === "unavailable") out.push(banner("warn", "Ezio is degraded: its fact-check was unavailable.", "Tone, bias and agreement were scored, but Ezio fact-checked no claim. Do not read its tier as a check of the facts."));
+  if (ez.error) out.push(banner("error", result.decision === "HOLD_FOR_REVIEW" ? "Fever mode: Ezio unavailable, holding for review." : `Fever mode: Ezio unavailable. Independent citation checks decided: ${LABELS[result.decision]}.`, `Ezio returned no usable score (${ez.error}). Routing followed the gate's failure policy: ${LABELS[result.decision]}. A missing score is never treated as approval.`));
+  else if (ez.accStatus === "unavailable") out.push(banner("warn", "Fever mode: Ezio is degraded, its fact-check was unavailable.", "Tone, bias and agreement were scored, but Ezio fact-checked no claim. Do not read its tier as a check of the facts."));
   return out;
 }
 
@@ -897,7 +899,7 @@ function renderResult(text, result, seconds) {
       el("div", { class: "dlabel" }, LABELS[dec]),
       routeBadge(result),
       el("div", { class: "vsum" }, el("strong", {}, "Reason: "), result.reason),
-      el("div", { class: "vsum", style: "margin-top:6px" }, CONSEQUENCE[dec]),
+      el("div", { class: "vsum conseq", style: "margin-top:6px" }, el("strong", {}, "If approved, this memo goes to the partner as written. "), CONSEQUENCE[dec]),
       el("div", { class: "vmeta" }, `${summary} Decided by the gate in ${seconds.toFixed(1)} s.`)),
     el("div", {}, g, el("div", { class: "gate-legend" }, "AI draft", el("span", { class: "seg ok" }), "Gate", el("span", { class: "seg " + seg }), "Partner")));
   const out = [
@@ -1191,7 +1193,8 @@ $("refresh-audit").onclick = loadAudit;
     const r = ch.getBoundingClientRect();
     const nx = (e.clientX - r.left) / r.width - .5, ny = (e.clientY - r.top) / r.height - .5;
     ch.style.setProperty("--mx", `${((nx + .5) * 100).toFixed(1)}%`); ch.style.setProperty("--my", `${((ny + .5) * 100).toFixed(1)}%`);
-    const far = Math.abs(nx) > 1 || Math.abs(ny) > 1.2 || document.activeElement === $("memo") || document.activeElement === $("context");
+    const onControl = e.target.closest && e.target.closest("textarea, button, input, #ctx-panel, #input-error");
+    const far = onControl || Math.abs(nx) > 1 || Math.abs(ny) > 1.2 || document.activeElement === $("memo") || document.activeElement === $("context");
     tx = far ? 0 : -ny * MAX; ty = far ? 0 : nx * MAX; kick();
   }, { passive: true });
   document.addEventListener("pointerleave", () => { tx = ty = 0; kick(); });
