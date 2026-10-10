@@ -232,3 +232,9 @@ Run one input: python3 gate.py try --persona paralegal "Under Miranda v. Arizona
 Practice set: python3 gate.py practice --persona paralegal
 Persona page: python3 gate.py serve --persona paralegal
 Wrapper start command: python3 wrapper/serve.py
+
+## AI tools used
+We used Claude Code and OpenAI Codex as coding agents. They helped us plan the design, write the paralegal source-of-truth checks and decision policy, build the persona page, and red-team the gate with new tricky memos (short case names, near-miss citations, cases on neither list) that exposed missing general rules. We reviewed every change, set the rules and thresholds ourselves, and verified everything with gate.py practice and gate.py judge. The submitted wrapper uses only the Python standard library and the supplied local mock Ezio; no event-provided API (TokenRouter, Keenable) is called by the wrapper.
+
+## Best Use of Ezio
+We treat Ezio as a signal, not the decision. Ezio's per-claim fact-check covers public-law claims our case lists can't see, so any claim Ezio contradicts blocks the memo, and a claim it supports needs no second opinion. A green score isn't enough on its own: on our practice run, Ezio rated five bad memos GREEN 94–100 (fabricated cases, a wrong year, misstated holdings), and our independent check blocked all five. When Ezio is down, slow or unavailable, our "fever mode" blocks what our own lists catch and holds everything else for a human. See results/Antibody.report.md and the "Run all samples" view of our page.
