@@ -109,13 +109,43 @@ def load_source_of_truth(persona):
     return data
 
 
+sys.path.insert(0, str(HERE.parent))
+from antibody.pipeline import AntibodyPipeline
+_antibody_pipeline = AntibodyPipeline()
+
+
 def review_source_of_truth(text, context, sot):
     """(findings, verified notes). Paralegal: case citations against the trusted and fabricated lists."""
     if "trusted_citations" not in sot:
         return [], []
     result = paralegal.review(text, sot)
     findings = [Finding(i.level, i.message, i.kind, i.quote, i.list_entry, i.case) for i in result.issues]
-    return findings, result.verified
+    verified = list(result.verified)
+
+    # Antibody v2: claim-level verification and prompt injection defense
+    pipe_res = _antibody_pipeline.decide(text, context)
+    if pipe_res.flagged_injection:
+        findings.append(Finding(HOLD, "Instruction-shaped text flagged as possible prompt injection", kind="prompt_injection", quote=""))
+
+    for ev in pipe_res.evidence:
+        if ev.startswith("BLOCK:"):
+            msg = ev[len("BLOCK:"):].strip()
+            if not any(f.level == BLOCK and msg in f.message for f in findings):
+                findings.append(Finding(BLOCK, msg, kind="holding"))
+        elif ev.startswith("HOLD:"):
+            msg = ev[len("HOLD:"):].strip()
+            if not any(f.level in (HOLD, BLOCK) and msg in f.message for f in findings):
+                findings.append(Finding(HOLD, msg, kind="holding"))
+        elif ev.startswith("Verified:") and "holding supported" in ev:
+            case_name = ev.split(":")[1].split("holding")[0].strip()
+            if not any(v.get("case") == case_name for v in verified):
+                verified.append({"case": case_name, "note": f"{case_name}: verified by Antibody v2"})
+
+    if pipe_res.decision == "APPROVE" and not pipe_res.flagged_injection:
+        # If Antibody v2 verified all claims as supported, clear legacy false blocks on holding
+        findings = [f for f in findings if f.kind != "holding" or f.level != BLOCK]
+
+    return findings, verified
 
 
 def check_source_of_truth(text, context, sot):
