@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# Antibody v2 CLI runner for Approval Gate
+set -e
+
+REPO_DIR="/Users/li/immune system/Approval-Gate"
+
+# Detect Python interpreter with rapidfuzz / test dependencies
+if [ -n "$VIRTUAL_ENV" ] && [ -x "$VIRTUAL_ENV/bin/python3" ]; then
+    PYTHON="$VIRTUAL_ENV/bin/python3"
+elif [ -x "/Users/li/immune system/Agent-immune-system/.venv/bin/python3" ]; then
+    PYTHON="/Users/li/immune system/Agent-immune-system/.venv/bin/python3"
+elif command -v python3 >/dev/null 2>&1; then
+    PYTHON="python3"
+else
+    echo "Error: Python 3 not found." >&2
+    exit 1
+fi
+
+cd "$REPO_DIR" || exit 1
+
+case "$1" in
+  ""|serve)
+    shift 2>/dev/null || true
+    echo "=========================================================="
+    echo "🛡️  ANTIBODY v2 — Legal Memo Verification Approval Gate"
+    echo "=========================================================="
+    echo "Starting private mock, wrapper, and web UI..."
+    echo ""
+    echo "Once started, open either:"
+    echo "  • Antibody Dashboard & Testing Studio: /antibody.html"
+    echo "  • Approval Gate Persona UI:            /persona.html"
+    echo "=========================================================="
+    exec "$PYTHON" gate.py serve --persona paralegal "$@"
+    ;;
+  practice)
+    shift
+    exec "$PYTHON" gate.py practice --persona paralegal "$@"
+    ;;
+  eval)
+    shift
+    exec "$PYTHON" -m eval.run --v2 "$@"
+    ;;
+  test)
+    shift
+    exec "$PYTHON" -m pytest "$@"
+    ;;
+  try)
+    shift
+    exec "$PYTHON" gate.py try --persona paralegal "$@"
+    ;;
+  results)
+    shift
+    exec "$PYTHON" gate.py results "$@"
+    ;;
+  help|-h|--help)
+    cat << 'EOF'
+Antibody v2 CLI — Claim-Level Verification Gate & UI
+
+Usage:
+  antibody              Start live Approval Gate & UI dashboard (default: serve)
+  antibody serve        Start live Approval Gate & UI dashboard
+  antibody practice     Run 16-item practice set and 6 failure drills
+  antibody eval         Run 108-item verification evaluation suite
+  antibody test         Run pytest unit and contract tests
+  antibody try "MEMO"   Test an individual memorandum text
+  antibody results      Launch local color-coded results viewer
+  antibody --help       Show this help message
+
+Options can also be passed directly through to gate.py:
+  antibody practice --no-show
+  antibody serve --latency 0
+EOF
+    exit 0
+    ;;
+  *)
+    exec "$PYTHON" gate.py "$@" --persona paralegal
+    ;;
+esac
