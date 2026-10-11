@@ -48,9 +48,16 @@ case "$1" in
     shift
     exec "$PYTHON" gate.py try --persona paralegal "$@"
     ;;
+  judge)
+    shift
+    exec "$PYTHON" gate.py judge --persona paralegal "$@"
+    ;;
   results)
     shift
     exec "$PYTHON" gate.py results "$@"
+    ;;
+  digest|verify)
+    exec "$PYTHON" gate.py "$@"
     ;;
   help|-h|--help)
     cat << 'EOF'
@@ -73,6 +80,6 @@ EOF
     exit 0
     ;;
   *)
-    exec "$PYTHON" gate.py "$@" --persona paralegal
+    exec "$PYTHON" gate.py "$@"
     ;;
 esac
