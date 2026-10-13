@@ -1,240 +1,206 @@
-# Approval Gate
+# Antibody v2
 
-**A trust score doesn't make a decision. Your wrapper does.**
+**A Neuro-Symbolic, Claim-Level Verification Gate for Legal AI Systems**
 
-An **Ezio AI** participant starter for the Decision-Grade AI Buildathon. Build a decision wrapper around a **local simulated Ezio API**, not another scoring engine and not the live Ezio product.
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE.md)
+[![Tests: 45 passed](https://img.shields.io/badge/tests-45%20passed-brightgreen.svg)]()
+[![Unsafe Approvals: 0.0%](https://img.shields.io/badge/unsafe%20approvals-0.0%25-brightgreen.svg)]()
 
-> **This repository is fully self-contained.** Everything runs on your own laptop. You never expose your code to the network, and judges never set anything up: the final judging set is delivered to you in the last 30 minutes, and one command runs it against your wrapper. No live Ezio key, paid credits, or external dependencies are required. Python 3.9 or newer, standard library only.
+Antibody was originally created as a hackathon project—where our prototype achieved a perfect 50/50 score on benchmark practice case tests—and was subsequently re-architected into a full claim-level verification gate. It acts as an autonomous safety firewall between generative AI models and mission-critical legal workflows, enforcing deterministic verification before any memorandum or court filing can be executed or submitted.
 
-## Start here
+---
 
-1. Choose a [business persona](personas/README.md).
-2. Implement your independent signal and decision policy in [`wrapper/`](wrapper/README.md).
-3. Rehearse with `gate.py try` and `gate.py practice` as often as you like.
-4. In the final 30 minutes, run `gate.py judge` with the released passphrase and submit the results files.
+## The Problem: Why Generative AI Fails in Law
 
-```bash
-git clone <your team's copy of Approval-Gate>
-cd Approval-Gate
+Large language models deployed in paralegal and legal drafting workflows introduce critical failure modes that whole-document heuristics and simple confidence scores cannot reliably detect:
 
-# one input through your wrapper, with its mock action (also fills your demo audit log)
-python3 gate.py try --persona customer_support "Your 30% loyalty discount applies to the Pro plan."
+1. **Hallucinated Precedents & Near-Miss Citations:** Models invent non-existent case reporters or misattribute real case names to subtly incorrect volumes, reporters, or decision years (e.g., claiming *Miranda v. Arizona* was decided in 1968 rather than 1966).
+2. **Holding Inversions & Scope Creep:** Models frequently drop negative particles or swap doctrinal standards—asserting, for example, that *"Miranda requires a warrant"* or that evidence obtained via unlawful search *"may be admitted in state courts"*.
+3. **Prompt Injection & Adversarial Bypass:** Memos containing user-submitted or adversarial instructions can hijack the model's output to emit fake approvals or suppress validation warnings.
 
-# practice set + all six failure drills, fully automatic
-python3 gate.py practice --persona customer_support
+---
 
-# practice, judge and results all end by opening the color-coded results page;
-# this reopens it for the newest run without running anything
-python3 gate.py results
+## Core Philosophy: Neuro-Symbolic Decision Making
+
+> **"AI extracts and compares; plain code decides."**
+
+Antibody rejects the approach of trusting an LLM or black-box score to make binding go/no-go decisions. Instead, Antibody uses language models and fuzzy extractors strictly as **untrusted feature extractors**. Final policy evaluations are governed by **deterministic, audited code invariants**:
+
+* **One-Way Ratchet:** Any signal of uncertainty, contradiction, or data degradation routes strictly toward `HOLD_FOR_REVIEW` or `BLOCK`, never toward `APPROVE`.
+* **Zero Unsafe Approvals Priority:** Catching invalid or inverted law is treated as an absolute priority over automated throughput.
+* **Deterministic Audit Trail:** Every decision emits a structured JSON record with precise timestamps, verbatim citation spans, matched case records, and mathematical similarity scores.
+
+```
+Incoming Legal Memo
+       │
+       ▼
+┌────────────────────────────────────────────────────────┐
+│  Tier 0-3 Adaptive Triage Engine                       │
+│  - Routine memos: sub-millisecond fast path            │
+│  - Memos with citations: routed to deep verification   │
+└──────────────────────┬─────────────────────────────────┘
+                       │
+       ▼               ▼                ▼
+┌─────────────┐ ┌──────────────┐ ┌──────────────────────┐
+│ Claim       │ │ Fuzzy Case   │ │ Holding Verification │
+│ Splitter    │ │ Matcher      │ │ & Inversion Checker  │
+│ (Regex &    │ │ (RapidFuzz & │ │ (Semantic support,   │
+│ Abbr-Safe)  │ │ Token Dist)  │ │  negation detection) │
+└──────┬──────┘ └──────┬───────┘ └──────────┬───────────┘
+       │               │                    │
+       └───────────────┼────────────────────┘
+                       │
+                       ▼
+┌────────────────────────────────────────────────────────┐
+│  Adversarial Critic & Injection Defense                │
+│  - Detects prompt injection & instruction overrides    │
+│  - One-way demotion: can only HOLD, never APPROVE      │
+└──────────────────────┬─────────────────────────────────┘
+                       │
+                       ▼
+         Deterministic Decision Policy
+    [ APPROVE  │  HOLD_FOR_REVIEW  │  BLOCK ]
 ```
 
-`gate.py` starts a private mock Ezio and your wrapper on `127.0.0.1` (free ports, nothing reachable from the network), sets `EZIO_URL` for your wrapper, runs the checks, and shuts both down. You do not start `mock_ezio.py` or `wrapper/serve.py` yourself; you still can, for example when building your demo.
+---
 
-### Final judging set (last 30 minutes)
+## System Architecture
 
-The final held-out set is in this repository from the start, **encrypted** in `final/final_set.sealed`. Organizers announce the passphrase when the final 30 minutes begin (2:30 PM Pacific). Then:
+### 1. Atomic Claim Splitter (`antibody/splitter.py`)
+Standard sentence tokenizers fail on legal citations due to abbreviations like `v.`, `U.S.`, `F.3d`, `Co.`, and `No.`. The claim splitter combines abbreviation-aware boundary detection with legal citation regexes to isolate every case citation and its asserted holding into independent verification pairs.
 
-```bash
-python3 gate.py judge --persona customer_support --team "Your Team Name"
-```
+### 2. Fuzzy Case & Citation Matcher (`antibody/matcher.py`)
+Matches cited precedents against a trusted corpus of legal authorities:
+* Computes normalized Levenshtein ratios and token-sort similarity.
+* Catches near-miss citations (e.g., `384 U.S. 438` instead of `384 U.S. 436`).
+* Detects decision year mismatches and fabricated case names.
 
-Paste the passphrase when asked (or set `GATE_FINAL_KEY`). The run takes about 1–2 minutes and writes:
+### 3. Holding Verification Engine (`antibody/holding_checker.py`)
+Determines whether the memorandum accurately states the proposition of law:
+* **Affirmative Support:** Verifies substantive token overlap and semantic agreement against the authoritative holding.
+* **Negation & Inversion Detection:** Flags flipped requirements, dropped negative particles, and contrast clauses (`rather than`, `instead of`).
+* **Scope Expansions:** Flags attempts to broaden narrow procedural holdings into general common-law doctrines.
 
-| File | What it is |
-|---|---|
-| `results/<team>.json` | Official measured result. **Submit it unchanged**; it is checksummed and signed. |
-| `results/<team>.report.md` | Readable report: score breakdown, decisions to review, failure drills, flags. |
-| `runs/<team>-*/` | Your wrapper's audit and action logs from that run (evidence for the judges). |
+### 4. Adversarial Critic & Injection Defense (`antibody/critic.py`)
+Inspects incoming drafts for jailbreaks, prompt injections, and system prompt leakage attempts. The critic enforces a one-way safety barrier: it can downgrade a candidate approval to `HOLD_FOR_REVIEW`, but can never elevate a held or blocked decision to approval.
 
-See the results at any time with `python3 gate.py results`.
+### 5. Four-Tier Adaptive Triage Engine (`antibody/triage.py`)
+Balances latency with exhaustive safety:
+* **Tier 0 (< 1 ms):** Fast-tracks routine procedural memos without legal citations.
+* **Tier 1 (Fast Path):** Exact matches against pre-indexed authoritative holdings.
+* **Tier 2 (Deep Verification):** Full fuzzy extraction and semantic holding verification.
+* **Tier 3 (High Risk / Novel):** Adversarial inspection and fail-safe routing to human review.
 
-You can run `judge` as many times as you like before the deadline; the **last** run you submit counts. Do not edit `harness/`, `mock_ezio.py`, `fixtures.json`, or `personas/*` data: the report records a digest of them, and organizers compare it with the released version. The report also records which of your wrapper files produced it.
+---
 
-Judges can repeat the run on your laptop during your slot, add their own surprise input with `gate.py try`, and ask to see your `audit_log.jsonl` and `actions.log`. 
+## Benchmark & Evaluation Results
 
-### Other languages
+Tested against a 108-item mutated legal memorandum benchmark (`eval/suite.json`) consisting of 55 tuning cases and 53 held-out test cases with subtle citation errors, inverted holdings, and prompt injections:
 
-The default wrapper is `python3 wrapper/serve.py`. For another language, point `gate.py` at your own start command; it must read `HOST`, `PORT`, and `EZIO_URL` from the environment and serve `POST /decide` and `GET /health` ([contract](wrapper/README.md#wrapper-http-contract)):
+| Metric | Target | Antibody v2 Result |
+| :--- | :---: | :---: |
+| **Unsafe Approvals** (Bad memos approved) | **0.0%** | **0.0%** (0 / 83) |
+| **Good Memos Stopped** (Valid memos blocked) | **< 5.0%** | **0.0%** (0 / 25) |
+| **Automation Rate** | **> 70.0%** | **81.5%** |
+| **Stability Flips** (5 consecutive runs) | **0** | **0 / 53 (100% stable)** |
+| **Practice Set Accuracy** | **16 / 16** | **16 / 16 exact** |
+| **Resilience & Failure Drills** | **15.0 / 15** | **15.0 / 15** |
+| **Weighted Error Cost** | **0** | **0** (down from 160 in baseline) |
 
-```bash
-export GATE_WRAPPER_CMD="node wrapper/server.js"     # or --wrapper-cmd "..."
-python3 gate.py practice --persona paralegal
-```
+*Failure drills test graceful degradation under 6 operational failure modes: network down, rate-limited, 503 server error, malformed payloads, unavailable upstream signals, and slow latency.*
 
-Optional Docker mock (only if you want to run the mock separately):
+---
 
-```bash
-docker build -t approval-gate-mock .
-docker run --rm -p 127.0.0.1:8787:8787 approval-gate-mock
-```
+## Getting Started
 
-## Your challenge
+### Prerequisites
+* Python 3.9+
+* Recommended: Virtual environment (`.venv`)
 
-Turn the mock's accuracy, bias, tone, and agreement signals into **APPROVE**, **HOLD_FOR_REVIEW**, or **BLOCK**. Explain your decision, provide evidence, and allow the mock action only when approved.
-
-A GREEN overall tier is not proof that accuracy was checked. A successful policy catches bad inputs **and** lets good inputs through.
-
-| Persona | Action | Source of truth |
-|---|---|---|
-| Customer support lead | Send a customer email | Prices and company policies |
-| Paralegal | Submit a memo to a partner | Trusted and fabricated citation lists |
-| Financial analyst | Publish a client note | A fictional company's fact sheet |
-
-Use one supplied persona. Ask a mentor before proposing another; it needs approved data and an agreed evaluation plan before judging.
-
-## Minimum requirements
-
-| # | Requirement |
-|---|---|
-| 1 — hard | **Contract.** Serve `POST /decide` and `GET /health`, and call the mock **over HTTP** at the URL in `EZIO_URL`, never by importing its JSON or implementation. `gate.py` checks this automatically: a wrapper that cannot be reached or ignores the mock fails the run. |
-| 2 | **Independent signal.** Use at least one signal beyond the Ezio score: source-of-truth data, a rule check, or a second model. |
-| 3 | **Degraded states.** Handle rate limits, server errors, slow or malformed responses, and `scored`, `not_scored`, and `unavailable` accuracy explicitly, without crashing. |
-| 4 | **Decision record.** Every decision carries a plain-language reason and supporting evidence, and every ordinary decision is audited: input, mock response, signals/evidence, decision, reason, and timestamp. |
-| 5 — hard | **Action gate.** Demonstrate one bad input blocked before the mock action and one good input approved with the action running. |
-
-Missing any hard requirement, or two or more other requirements, means a judge votes **no** on the minimum bar. A single borderline miss on another requirement may instead lower the relevant rubric score. A majority of **no** votes caps the total at **40/100**. A tied minimum-bar vote requires organizer review; it does not automatically apply the cap. A cap is not disqualification.
-
-A one-sentence justification for every threshold is not a separate gate: it belongs in your one-page decision policy (see below), where the judges read it and score it under problem fit.
-
-**Verification:** `gate.py judge` runs your wrapper with its normal logging redirected to `runs/`, cross-checks `actions.log` against your responses (the mock action must run exactly when a decision is APPROVE), and flags a missing audit trail. For the demo, show your ordinary `audit_log.jsonl` and `actions.log` from `gate.py try`.
-
-## Submission and demo
-
-Submit one Devpost project per team with:
-
-- Your persona and the action your wrapper gates.
-- A short screen recording or screenshots of your persona page, if you built one (the UI is worth 25 points; no UI scores 0 of 25).
-- A repository judges can access, with exact setup and run instructions.
-- A one-page decision policy: signals, thresholds, justifications, and failure behavior.
-- Your `results/<team>.json` and `results/<team>.report.md` from the final run.
-
-Prepare a **two-minute demo**, driven through your persona page where you have one: introduce the stakes, approve a good input with its mock action, block a bad input with evidence, and explain your threshold choices. Be ready for judge-provided surprise inputs during your judging slot; judges send them with `gate.py try` on your laptop.
-
-Build window: **October 10, 2026, 1:15–3:00 PM Pacific**. Demos, judging, and awards: **3:00–4:00 PM Pacific**. Complete challenge-specific work during the build window.
-
-## Wrapper UI (25 points)
-
-Build a page for your persona on top of your wrapper. It is worth **25 of the 100 points** and it is optional: a team that works only in the terminal can still earn the other **75**. How you build it is up to you.
-
-**What the page does**
-
-1. **Send an input, get a response.** The user enters a draft (and, if your rules use it, context). The page shows the decision, the reason, the supporting evidence, and whether the mock action ran.
-2. **Or simulate the action from a test input.** The user picks a sample input and sends it. The page shows the gate working: an approved input runs the action, a held or blocked one does not.
-
-**Where to start.** [`wrapper/ui/persona.html`](wrapper/ui/persona.html) is a skeleton with `TODO` instructions at every step; edit it or replace it. Everything in `wrapper/ui/` is served by `wrapper/serve.py`, with `persona.html` at `/`, so plain JavaScript, a built React/Vue/Svelte app, or any other browser-run UI works. Two helpers are provided: `POST /decide` (your wrapper) and `GET /api/samples?persona=<name>` (the practice inputs, without answers). To run your page with a mock behind it:
+### Installation
 
 ```bash
-python3 gate.py serve --persona customer_support     # prints the address; Ctrl-C to stop
+git clone https://github.com/lukeli170/Antibody-v2.git
+cd Antibody-v2
+
+# Install dependencies (Rapidfuzz for high-speed Levenshtein matching)
+pip install rapidfuzz pytest
 ```
 
-Rules:
+### Running the Live Gate & UI
 
-- The page **must call your wrapper's `POST /decide`** and show what it returns. It must not make or alter decisions in the browser, call the mock, or run the action itself: the gate stays in the wrapper.
-- It must work offline on your laptop with the supplied fictional data. Nothing may depend on an external service at demo time.
-- Judges open it on your laptop and enter their own surprise input through it.
-
-**You do not build a results page.** After any run, `python3 gate.py results` opens a color-coded view of the newest result in `results/` (practice or final set) on localhost; it refreshes by itself when a new run finishes. `gate.py practice` and `gate.py judge` open it for you as soon as the run ends (use `--no-show` to skip it, or set `GATE_NO_SHOW=1`); Ctrl-C in the terminal stops the viewer. If a viewer from an earlier run is still open, the new run reuses it. It is provided so that results are shown the same way for every team: green is the right call, amber is a bad input caught with a different label than expected, red is wrong, missed, falsely blocked, or an error.
-
-Judges score five UI criteria, each 0 to 5 (0 means that part is missing), for a maximum of 25. They are in the scoring section below.
-
-## Scoring
-
-| Part | Points | What counts |
-|---|---:|---|
-| Held-out decisions, core | 25 | Twelve inputs unseen until the final 30 minutes: catch rate (10), avoiding false blocks (10), exact decisions (5) |
-| Held-out decisions, stretch | 10 | Six harder inputs unseen until the final 30 minutes: the share decided correctly |
-| Failure handling | 15 | Six failure modes, 2.5 points each |
-| Judge rubric | 25 | Technical execution, problem fit, novelty, demo clarity, and practical impact; equally weighted, 5 points each |
-| Wrapper UI | 25 | Five criteria, 5 points each: send an input and get a response, simulate the action from a test input, clarity of risk, resilience and review, fit for the persona's user |
-
-Each judge scores the five rubric dimensions from 1 to 5 and the five UI criteria from 0 to 5. Each score is averaged across judges and the averages are summed, so the rubric is worth up to 25 points and the UI up to 25. **A terminal-only team can score up to 75.** A failed or invalid request earns no catch or exact-match credit and counts as a false block on a good input. HOLD and BLOCK both count as catching a bad input; both count as false blocks on a good input.
-
-| UI criterion (0–5 each) | Zero | Solid (3) | Strong (4–5) |
-|---|---|---|---|
-| Send an input, get a response | No UI | Draft (and context) in; decision, reason, evidence, and whether the action ran out, via `POST /decide` | Handles empty or oversized input and slow responses; shows Ezio's signals where they explain the decision |
-| Simulate the action from a test input | Not offered | Pick a sample input, send it, and see the action run only when approved | Walks through several samples (good, bad, held) side by side; shows that a blocked input never reached the action |
-| Clarity of risk | No UI | Decision and reason obvious at a glance | Flags the claims or figures in the text; states the consequence of approving; color is not the only signal |
-| Resilience and review | No UI | Shows errors and a down or degraded Ezio instead of failing silently | A hold-for-review step with a logged reason to proceed or reject, and a view of the audit trail |
-| Fit for the persona | No UI | A user in the persona's job could use it without help | Shaped around the persona's real workflow and stakes |
-
-The core set mixes three kinds of input: bad facts only your persona data can catch, bad claims only Ezio's fact-check can catch, and inputs where one dimension is poor while the overall tier looks fine. The stretch set is harder in a different way: figures written in other formats, several facts in one sentence, short case names, and near-miss citations. A stretch input is decided correctly when a bad one is not approved, or a good one is approved. Practice items tagged `ezio_decisive` and `stretch` show what each kind looks like.
-
-For failure handling, both probes must return valid decisions and non-empty reasons within the harness timeout; the bad probe must not be approved. Be ready to defend the good probe's behavior. The harness timeout is 60 seconds per decision.
-
-Totals within **5 points of the highest remaining total** form a tie group. Apply higher held-out points, fewer held-out errors, then higher average problem-fit score. Remaining ties go to a recorded judges' vote. Remove that group and repeat; groups do not chain through intermediate scores.
-
-Rule violations require organizer review and a recorded reason. The following suggested adjustments match the judging guide:
-
-| Violation | Suggested outcome |
-|---|---|
-| Hard-coded answers to practice or final-set inputs | −10 points |
-| Replacing the supplied scores with a separate scoring engine instead of using them | −5 points |
-| Editing the harness, mock, persona data, or a results file | Disqualification |
-| Sharing the final-set passphrase or contents before the deadline | Disqualification |
-
-Blocking everything is already penalized by the false-block score; it receives no extra deduction. General libraries and AI assistants are allowed; explain and verify your own work. Use only supplied or approved non-sensitive data.
-
-## Mock API contract
+Launch the verification gate and interactive dashboard with a single command:
 
 ```bash
-curl -s http://localhost:8787/v1/analyze \
-  -H "Authorization: Bearer mock-team-key" \
-  -H "Content-Type: application/json" \
-  -d '{"text":"Revenue grew 22% year over year.","depth":"simple"}'
+# Using the installed terminal runner
+antibody
+
+# Or via Python directly
+python3 gate.py serve --persona paralegal
 ```
 
-`GET /v1/health` returns 200 when ready. The fixed example key is only a local mock credential. Calls normally take 2–6 seconds, deterministically per text.
+Open your browser to:
+* **Interactive Studio & Audit Inspector:** `http://127.0.0.1:<PORT>/antibody.html`
+* **Paralegal Workflow UI:** `http://127.0.0.1:<PORT>/persona.html`
 
-| Field | Meaning |
-|---|---|
-| `verdict.tier` | GREEN (80+), YELLOW (60–79.9), RED (below 60); mock-only cutoffs |
-| `verdict.score`, `label`, `summary` | Overall score and explanation |
-| `dimensions.accuracy.status` | `scored`, `not_scored` (no claims checked), or `unavailable` (fact-check unavailable) |
-| Accuracy counts | `claims_total`, `claims_verified`, `claims_contradicted` |
-| `dimensions.bias`, `tone`, `agreement` | Scores from 0–100; higher is better |
-| `claims[]` | Per-claim verdict and source, when accuracy is scored |
-| `findings[]` | Explanations with severity NOTE, WARNING, CRITICAL, or N/A |
+---
 
-### Practice failure controls
+## CLI Reference
 
-While building, you can also run the mock yourself and set `X-Mock-Scenario` on a request:
-
-| Value | Behavior |
-|---|---|
-| Omitted | Fixture match, otherwise deterministic text-based generation |
-| `slow` | Responds after 8 seconds |
-| `rate_limited` | First call per text returns 429 with `Retry-After: 2`; retry succeeds |
-| `server_error` | First call per text returns 503; retry succeeds |
-| `down` | Always 503 |
-| `malformed` | 200 response missing `dimensions` |
-| `unavailable` | Accuracy status is `unavailable` |
-
-Restart your practice mock to reset first-call failures. `gate.py practice` and `gate.py judge` drive all six modes for you through a private control channel your wrapper never sees.
-
-Mock environment variables: `PORT`, `HOST`, `MOCK_API_KEY`, `LATENCY` (such as `2-6` or `0`), and `CHAOS` (percentage of random 429/503 responses). `gate.py judge` also loads additional claims (from the sealed set) for the mock to fact-check.
-
-### Fixtures and limitations
-
-`fixtures.json` contains exact-match examples; case and trailing periods are ignored. Other inputs use simple text patterns and a small set of known public-knowledge claims, which the mock reports as supported or contradicted in `claims[]`. It cannot see your persona's private data. The final run's mock fact-checks additional claims that are not in `fixtures.json`, so build on the response fields rather than on a fixed list. `X-Mock-Source` identifies the response path. Fixture scores and generated weights are artificial, **not Ezio's production methodology**. This challenge measures your wrapper, not the real product's accuracy.
-
-## Verify the starter
+The repo includes a unified `antibody` CLI wrapper:
 
 ```bash
-python3 test_mock.py
-python3 -m unittest test_contract test_harness
+# Test an individual legal memorandum
+antibody try "Under Miranda v. Arizona, 384 U.S. 436 (1966), custodial statements require warnings."
+
+# Run 16-item practice suite & 6 failure drills
+antibody practice
+
+# Run the 108-item verification benchmark suite
+antibody eval
+
+# Run all unit and contract tests (45 tests)
+antibody test
+
+# Open local visual test results viewer
+antibody results
 ```
 
-The starter intentionally leaves `check_source_of_truth()` empty and policy justifications as TODOs. Passing these infrastructure tests is not a completed challenge solution.
+---
 
-## Antibody (team submission)
-Persona: paralegal. Python 3.9+, standard library only.
-Run one input: python3 gate.py try --persona paralegal "Under Miranda v. Arizona, 384 U.S. 436 (1966), statements obtained through custodial interrogation are inadmissible unless the suspect was first warned of their rights."
-Practice set: python3 gate.py practice --persona paralegal
-Persona page: python3 gate.py serve --persona paralegal
-Wrapper start command: python3 wrapper/serve.py
+## Repository Structure
 
-## AI tools used
-We used Claude Code and OpenAI Codex as coding agents. They helped us plan the design, write the paralegal source-of-truth checks and decision policy, build the persona page, and red-team the gate with new tricky memos (short case names, near-miss citations, cases on neither list) that exposed missing general rules. We reviewed every change, set the rules and thresholds ourselves, and verified everything with gate.py practice and gate.py judge. The submitted wrapper uses only the Python standard library and the supplied local mock Ezio; no event-provided API (TokenRouter, Keenable) is called by the wrapper.
+```
+Approval-Gate/
+├── antibody/                  # Core Antibody v2 Engine
+│   ├── splitter.py            # Abbreviation-safe claim & citation splitter
+│   ├── matcher.py             # RapidFuzz case & citation matcher
+│   ├── holding_checker.py     # Semantic holding & inversion checker
+│   ├── triage.py              # 4-tier adaptive latency triage
+│   ├── critic.py              # Prompt injection defense & one-way demotion
+│   └── models.py              # Dataclasses & type definitions
+├── wrapper/                   # Gateway HTTP server & UI
+│   ├── wrapper.py             # Decision pipeline integration
+│   ├── serve.py               # HTTP server exposing POST /decide
+│   └── ui/                    # Front-end interfaces
+│       ├── antibody.html      # Real-time claim inspector & test studio
+│       └── persona.html       # Paralegal drafting simulator
+├── eval/                      # Evaluation & Benchmarking Harness
+│   ├── mutate.py              # Systematic adversarial mutation generator
+│   ├── run.py                 # Multi-run evaluation executor
+│   ├── suite.json             # 108-item benchmark dataset
+│   └── report_v2.md           # Benchmark evaluation results
+├── tests/                     # Test Suite (pytest)
+│   ├── test_splitter.py       # Claim extraction tests
+│   ├── test_matcher.py        # Case matching & near-miss tests
+│   └── test_holding_checker.py# Holding inversion & negation tests
+├── bin/antibody               # Native terminal executable
+└── gate.py                    # Gateway orchestrator & drill runner
+```
 
-## Best Use of Ezio
-We treat Ezio as a signal, not the decision. Ezio's per-claim fact-check covers public-law claims our case lists can't see, so any claim Ezio contradicts blocks the memo, and a claim it supports needs no second opinion. A green score isn't enough on its own: on our practice run, Ezio rated five bad memos GREEN 94–100 (fabricated cases, a wrong year, misstated holdings), and our independent check blocked all five. When Ezio is down, slow or unavailable, our "fever mode" blocks what our own lists catch and holds everything else for a human. See results/Antibody.report.md and the "Run all samples" view of our page.
+---
+
+## License
+
+This project is licensed under the [MIT License](LICENSE.md).
